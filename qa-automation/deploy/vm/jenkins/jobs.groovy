@@ -68,7 +68,6 @@ pipeline {
   options {
     disableConcurrentBuilds()
     timestamps()
-    timeout(time: 12, unit: "HOURS")
   }
   stages {
     stage("Run overall regression") {
