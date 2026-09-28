@@ -428,6 +428,7 @@ test("renders overall regression items as searchable paginated expandable table 
     assert.match(html, /Run on your tenancy instructions \/ Lab 2: Prepare the data/);
     assert.match(html, />Open workshop<\/a>/);
     assert.match(html, />Open exact lab<\/a>/);
+    assert.equal((html.match(/>Open exact lab<\/a>/g) || []).length, 2);
     assert.match(html, /Highlighted issue<\/a>/);
     assert.match(html, /screenshot\.png" target="_blank" rel="noreferrer"/);
     assert.match(html, /<summary>Raw automation details<\/summary>/);

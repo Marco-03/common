@@ -3982,8 +3982,19 @@ function sourceLocationLabel(detail) {
   return [detail.labTitle, detail.section].filter(Boolean).join(" / ");
 }
 
-function sourceLocationActionLabel(_detail, catalogItemType) {
+function sourceLocationActionLabel(detail, catalogItemType) {
+  const pageUrl = detail?.pageUrl || detail?.page_url || "";
+  if (detail?.labTitle && isExactLabSourceUrl(pageUrl)) return "Open exact lab";
   return catalogItemOpenLabel(catalogItemType);
+}
+
+function isExactLabSourceUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return !isSessionDependentWorkshopUrl(url) && url.searchParams.has("lab");
+  } catch {
+    return false;
+  }
 }
 
 function stableWorkshopSourceUrl(value, fallback) {
@@ -4081,7 +4092,7 @@ function operatorIssueAffectedItemsHtml(issue, item) {
         ${entry.url ? `<code>${escapeHtml(entry.url)}</code>` : ""}
         ${entry.detail ? `<span>${escapeHtml(entry.detail)}</span>` : ""}
       </div>
-      ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, "Open exact lab") : ""}
+      ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, entry.actionLabel || catalogItemOpenLabel(item?.catalogItem?.type)) : ""}
     </div>`).join("")}
   </div>`;
 }
@@ -4190,7 +4201,13 @@ function operatorIssueDetail(detail, index, item) {
   const location = detail.location ? `Found in ${detail.location}` : "";
   const fallbackUrl = item?.catalogItem?.normalized_href || item?.catalogItem?.absolute_url || item?.catalogItem?.href || "";
   const actionUrl = stableWorkshopSourceUrl(detail.pageUrl || detail.page_url || "", fallbackUrl);
-  return { label, url, detail: [location, result].filter(Boolean).join(" / "), actionUrl };
+  return {
+    label,
+    url,
+    detail: [location, result].filter(Boolean).join(" / "),
+    actionUrl,
+    actionLabel: sourceLocationActionLabel(detail, item?.catalogItem?.type),
+  };
 }
 
 function isInternalPreviewContentUrl(value) {
