@@ -49,6 +49,7 @@ test.describe("LiveLabs LiveStack overview pages", { tag: LIVESTACK_OVERVIEW_TAG
           await assertContentQuality(page, {
             contextName: `LiveStack overview: ${card.title}`,
             expectedTerms: target.expected_terms,
+            allowCustomVideoEmbeds: true,
           });
         });
       }

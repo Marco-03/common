@@ -50,6 +50,12 @@ test.describe("LiveLabs generated LiveStack overview pages", { tag: GENERATED_LI
           environmentConfig.base_url,
           item,
           `Generated LiveStack overview: ${item.title}`,
+          { allowAuthenticationRequired: true },
+        );
+
+        test.skip(
+          navigation.authenticationRequired === true,
+          "LiveStack requires a QA sign-in session; this is temporarily excluded from owner-facing findings.",
         );
 
         testInfo.annotations.push({
@@ -63,6 +69,7 @@ test.describe("LiveLabs generated LiveStack overview pages", { tag: GENERATED_LI
           contextName: `Generated LiveStack overview: ${item.title}`,
           expectedTerms: expectedTermsForCatalogItem(item),
           expectedTermsMode: "any",
+          allowCustomVideoEmbeds: true,
         });
       });
     }

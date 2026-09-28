@@ -201,7 +201,7 @@ test("shows a complete PAR scan failure explanation on the PAR page", () => {
   assert.match(html, /returned HTTP 404/);
   assert.match(html, /PAR links on &quot;Preview instructions: Getting Started&quot; were not checked/);
   assert.match(html, /Correct the path for &quot;Preview instructions: Getting Started&quot;/);
-  assert.match(html, /WMS 848/);
+  assert.match(html, /LiveLabs ID 848/);
   assert.match(html, /Open page/);
   assert.match(html, /Technical details/);
   assert.match(html, /Workshop source returned HTTP 404/);
@@ -252,7 +252,7 @@ test("collapses duplicate rendered detections into one actionable source locatio
   assert.match(html, /Lab 2<\/span><strong>Download the sample/);
   assert.match(html, /Task or section<\/span><strong>Task 2: Download the sample/);
   assert.match(html, /Step<\/span><strong>2\. Select the download link/);
-  assert.match(html, /WMS 4242 \/ Lab 2: Download the sample \/ Task: Task 2: Download the sample \/ Step 2/);
+  assert.match(html, /LiveLabs ID 4242 \/ Lab 2: Download the sample \/ Task: Task 2: Download the sample \/ Step 2/);
 });
 
 test("labels overview-only recheck sources honestly and removes duplicate locations", () => {

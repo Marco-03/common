@@ -1,5 +1,9 @@
 import { WorkshopInstructionsPage } from "../../../../../pages/platform/workshopInstructionsPage.js";
-import { assertAssetActionWorks, assertNoBrowserError } from "../../../../support/assetActions.js";
+import {
+  assertAssetActionWorks,
+  assertNoBrowserError,
+  isExpectedProtectedOracleAssetAction,
+} from "../../../../support/assetActions.js";
 import { assertContentQuality } from "../../../../support/contentQuality.js";
 import { signInIfRequired } from "../../../../support/authenticatedNavigation.js";
 import { openCatalogSearch } from "../../../../support/overviewFlows.js";
@@ -67,6 +71,7 @@ test.describe("LiveLabs LiveStack resources and assets", { tag: LIVESTACK_RESOUR
           await workshopLandingPage.assertLoaded();
           await assertContentQuality(page, {
             contextName: `LiveStack resource workshop: ${resource.title}`,
+            allowCustomVideoEmbeds: true,
           });
 
           await workshopLandingPage.openLaunchOptions();
@@ -80,6 +85,7 @@ test.describe("LiveLabs LiveStack resources and assets", { tag: LIVESTACK_RESOUR
             await instructionsPage.assertLoaded();
             await instructionsPage.assertContentQuality({
               contextName: `LiveStack resource preview: ${resource.title}`,
+              allowCustomVideoEmbeds: true,
             }, testInfo);
 
             if (previewPage !== page) {
@@ -93,7 +99,9 @@ test.describe("LiveLabs LiveStack resources and assets", { tag: LIVESTACK_RESOUR
         await test.step(`Click asset action: ${assetAction.title}`, async () => {
           await openLiveStack();
           await assertAssetActionWorks(page, liveStackLandingPage.clickAssetAction.bind(liveStackLandingPage), assetAction);
-          await signInIfRequired(page, authRuntime, `LiveStack asset action: ${assetAction.title}`);
+          if (!isExpectedProtectedOracleAssetAction(assetAction, page.url())) {
+            await signInIfRequired(page, authRuntime, `LiveStack asset action: ${assetAction.title}`);
+          }
           await assertNoBrowserError(page, `LiveStack asset action: ${assetAction.title}`);
         });
       }

@@ -7,6 +7,7 @@ import {
   parLinkGuidance,
   parScanErrorExplanation,
   parLinksPageHtml,
+  parRetestListPageHtml,
   readParAudits,
   sanitizeSensitiveText,
   writeParAuditDataFiles,
@@ -14,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v10";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v12";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -40,80 +41,101 @@ function sanitizeReportText(value) {
 }
 const ISSUE_TYPE_DEFINITIONS = [
   {
-    code: "ROUTING_INVALID_WORKSHOP_ID",
-    label: "Invalid workshop route",
-    description: "The catalog card points to a workshop route that LiveLabs rejects or redirects away from.",
+    code: "WORKSHOP_NOT_AVAILABLE",
+    label: "Workshop not available",
+    description: "The catalog item could not be opened or LiveLabs reported that its published route is unavailable.",
+    priority: "P1",
   },
   {
-    code: "ROUTING_FAILED",
-    label: "Routing failed",
-    description: "The browser could not finish opening the indexed catalog item.",
+    code: "AUTHENTICATION_REQUIRED",
+    label: "QA sign-in required",
+    description: "The QA browser reached Oracle Sign In before it could inspect the catalog item.",
+    priority: "P3",
   },
   {
     code: "BROKEN_VISIBLE_IMAGE",
     label: "Broken visible image",
     description: "An image visible to the user did not load correctly.",
+    priority: "P2",
   },
   {
     code: "OVERVIEW_STRUCTURE",
     label: "Overview structure",
     description: "The workshop overview route opened, but expected page controls or sections were missing.",
+    priority: "P2",
   },
   {
     code: "BROKEN_VISIBLE_LINK",
     label: "Broken visible link",
     description: "A visible link appears broken, unreachable, or returns an error.",
+    priority: "P2",
   },
   {
     code: "BROKEN_EMBEDDED_CONTENT",
     label: "Broken embedded content",
     description: "Embedded content such as an iframe or media block did not render correctly.",
+    priority: "P2",
   },
   {
     code: "CONTENT_TEXT_DEFECT",
     label: "Content text defect",
     description: "The page appears to contain placeholder text, template text, TODOs, or obvious text defects.",
+    priority: "P3",
   },
   {
     code: "CONTENT_RELEVANCE",
     label: "Wrong or unrelated instructions content",
     description: "The instructions page opened, but it appears blank, outdated, or connected to a different workshop.",
+    priority: "P3",
   },
   {
     code: "INSTRUCTIONS_FLOW",
     label: "Instructions flow",
     description: "Preview or tenancy instructions did not open, render, or pass the content checks.",
+    priority: "P2",
   },
   {
     code: "ASSET_ACTION_FAILED",
     label: "Asset action failed",
     description: "A LiveStack demo, asset, download, or resource action did not work as expected.",
+    priority: "P2",
   },
   {
     code: "STALE_PAR_LINK",
     label: "Stale PAR link",
     description: "OCI Object Storage confirmed that a PAR link is no longer usable.",
+    priority: "P1",
   },
   {
     code: "PAR_LINK_UNVERIFIED",
     label: "PAR link unverified",
     description: "The PAR check still timed out or received a temporary response after retries.",
+    priority: "P3",
   },
   {
     code: "PAR_SCAN_INCOMPLETE",
     label: "PAR scan incomplete",
     description: "A workshop, LiveStack, resource, or instructions page could not be scanned for PAR links.",
+    priority: "P2",
   },
   {
     code: "TIMEOUT",
     label: "Timeout",
     description: "The page or expected state did not arrive before the configured test timeout.",
+    priority: "P3",
   },
   {
     code: "UNCLASSIFIED_FAILURE",
     label: "Unclassified failure",
     description: "The test failed, but the report does not yet have a more specific category for it.",
+    priority: "P3",
   },
+];
+
+const PRIORITY_DEFINITIONS = [
+  { code: "P1", label: "Fix first", description: "Public access is blocked or a confirmed PAR link is broken." },
+  { code: "P2", label: "High", description: "A page, instruction, link, image, embed, or action is unusable." },
+  { code: "P3", label: "Review", description: "Content quality or a temporary result needs review and confirmation." },
 ];
 
 export default class RootSummaryReporter {
@@ -344,7 +366,12 @@ export default class RootSummaryReporter {
       counts,
       failureCategories: Array.from(failureCategories.entries())
         .map(([code, count]) => ({ code, count, label: classificationLabel(code) }))
-        .sort((left, right) => right.count - left.count || left.code.localeCompare(right.code)),
+        .sort(
+          (left, right) =>
+            Number(issuePriority(left).slice(1)) - Number(issuePriority(right).slice(1)) ||
+            right.count - left.count ||
+            left.code.localeCompare(right.code),
+        ),
       failures,
       catalogItems: Array.from(catalogItems.values())
         .map((item) => ({
@@ -358,6 +385,7 @@ export default class RootSummaryReporter {
         .sort(
           (left, right) =>
             catalogStatusRank(left.status) - catalogStatusRank(right.status) ||
+            itemPriorityRank(left) - itemPriorityRank(right) ||
             String(left.catalogItem.title || "").localeCompare(String(right.catalogItem.title || "")),
         ),
       parAudit: buildParAuditSummary(this.results),
@@ -437,9 +465,11 @@ function readQaIssues(attachments) {
 }
 
 function normalizeQaIssue(issue) {
-  const code = typeof issue.code === "string" && issue.code.trim() ? issue.code.trim() : "UNCLASSIFIED_FAILURE";
+  const rawCode = typeof issue.code === "string" && issue.code.trim() ? issue.code.trim() : "UNCLASSIFIED_FAILURE";
+  const code = canonicalIssueCode(rawCode);
   const definition = issueTypeDefinition(code);
-  const label = typeof issue.label === "string" && issue.label.trim() ? issue.label.trim() : definition.label;
+  const label =
+    rawCode === code && typeof issue.label === "string" && issue.label.trim() ? issue.label.trim() : definition.label;
   const message =
     typeof issue.message === "string" && issue.message.trim() ? issue.message.trim() : definition.description;
   const severity =
@@ -568,11 +598,14 @@ function classifyResult({ status, expectedStatus, errors, finalUrl, titlePath, f
 
   const text = `${errors.join("\n")}\n${finalUrl}\n${titlePath.join(" ")}\n${file}`;
 
+  if (/signon\.oracle\.com\/signin|\.identity\.oraclecloud\.com\/|Sign in to Oracle/i.test(text)) {
+    return { code: "AUTHENTICATION_REQUIRED", label: "QA sign-in required", severity: "warn" };
+  }
   if (/p1_invalid_workshop_id/i.test(text)) {
-    return { code: "ROUTING_INVALID_WORKSHOP_ID", label: "Invalid workshop route", severity: "fail" };
+    return { code: "WORKSHOP_NOT_AVAILABLE", label: "Workshop not available", severity: "fail" };
   }
   if (/Could not open indexed catalog item|page\.waitForURL|Navigation failed/i.test(text)) {
-    return { code: "ROUTING_FAILED", label: "Routing failed", severity: "fail" };
+    return { code: "WORKSHOP_NOT_AVAILABLE", label: "Workshop not available", severity: "fail" };
   }
   if (/should not show broken visible images/i.test(text)) {
     return { code: "BROKEN_VISIBLE_IMAGE", label: "Broken visible image", severity: "fail" };
@@ -606,7 +639,14 @@ function classifyResult({ status, expectedStatus, errors, finalUrl, titlePath, f
 }
 
 function classificationLabel(code) {
-  return issueTypeDefinition(code).label || code;
+  const canonicalCode = canonicalIssueCode(code);
+  return issueTypeDefinition(canonicalCode).label || canonicalCode;
+}
+
+function canonicalIssueCode(code) {
+  return code === "ROUTING_INVALID_WORKSHOP_ID" || code === "ROUTING_FAILED"
+    ? "WORKSHOP_NOT_AVAILABLE"
+    : code;
 }
 
 function buildBugSummary({
@@ -671,6 +711,7 @@ function sectionFromFile(file) {
     if (file.includes("catalogIndex")) return "Generated Catalog Index";
     if (file.includes("livestackResources")) return "Generated LiveStack Resources";
     if (file.includes("livestackOverview")) return "Generated LiveStack Overview";
+    if (file.includes("sprintEventPages")) return "Generated Sprint and Event Page";
     if (file.includes("previewInstructions")) return "Generated Preview Instructions";
     if (file.includes("tenancyInstructions")) return "Generated Tenancy Instructions";
     if (file.includes("workshopOverview")) return "Generated Workshop Overview";
@@ -701,6 +742,7 @@ export function resultsCsv(summary) {
     "item_id",
     "item_title",
     "item_status",
+    "item_priority",
     "issue_count",
     "issue_code",
     "issue_label",
@@ -724,6 +766,7 @@ export function resultsCsv(summary) {
       catalogItem.id || catalogItem.slug || "",
       catalogItem.title || catalogItem.slug || catalogItem.id || "",
       item.status || "",
+      itemPriority(item),
       issues.length,
     ];
     const catalogUrl = sanitizeReportText(
@@ -779,7 +822,7 @@ export function resultsCsv(summary) {
           "",
           test.title || "",
           unexpected ? "failed" : test.status || "",
-          "",
+          unexpected ? issuePriority({ code: test.classification?.code || "UNCLASSIFIED_FAILURE" }) : "",
           unexpected ? 1 : 0,
           unexpected ? test.classification?.code || "UNCLASSIFIED_FAILURE" : "",
           unexpected ? test.classification?.label || "Test failure" : "",
@@ -882,7 +925,9 @@ function markdownSummary(summary) {
 
 function htmlSummary(summary, context = {}) {
   const catalogItems = reportCatalogItems(summary.catalogItems || []);
-  const failureCategories = (summary.failureCategories || []).filter((category) => category.code !== "CONTENT_RELEVANCE");
+  const failureCategories = canonicalFailureCategories(summary.failureCategories || []).filter(
+    (category) => category.code !== "CONTENT_RELEVANCE",
+  );
   const failures = (summary.failures || []).filter((failure) => failure.classification?.code !== "CONTENT_RELEVANCE");
   const reviewItems = buildReviewEntries(catalogItems, summary.runId);
   const itemCounts = {
@@ -955,6 +1000,16 @@ function htmlSummary(summary, context = {}) {
     details { margin-top: 12px; }
     summary { cursor: pointer; color: var(--link); font-weight: 700; }
     .page-title { max-width: 1280px; margin: 0 auto; }
+    .preview-notice {
+      background: var(--info-bg);
+      border: 1px solid #7dd3fc;
+      border-left: 4px solid var(--info);
+      border-radius: 6px;
+      color: #0c4a6e;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+    }
+    .preview-notice strong { display: block; margin-bottom: 3px; }
     .meta { color: var(--muted); display: flex; flex-wrap: wrap; gap: 10px; font-size: 14px; }
     .run-pill {
       align-items: center;
@@ -1183,10 +1238,11 @@ function htmlSummary(summary, context = {}) {
       border-bottom: 1px solid var(--line);
       display: grid;
       gap: 14px;
-      grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr) auto;
+      grid-template-columns: minmax(240px, 1fr) minmax(220px, .8fr) auto;
       padding: 14px 18px;
     }
     .result-search,
+    .result-filter,
     .page-size {
       color: var(--muted);
       display: grid;
@@ -1195,6 +1251,7 @@ function htmlSummary(summary, context = {}) {
       gap: 5px;
     }
     .result-search input,
+    .result-filter select,
     .page-size select {
       background: #ffffff;
       border: 1px solid var(--line-strong);
@@ -1203,12 +1260,6 @@ function htmlSummary(summary, context = {}) {
       min-height: 38px;
       padding: 8px 10px;
     }
-    .filter-buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-    }
-    .filter-buttons button,
     .pagination button {
       background: #ffffff;
       border: 1px solid var(--line-strong);
@@ -1219,16 +1270,35 @@ function htmlSummary(summary, context = {}) {
       min-height: 38px;
       padding: 7px 10px;
     }
-    .filter-buttons button span {
+    .priority-guide {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      margin: 0 18px 14px;
+      padding: 10px 12px;
+    }
+    .priority-guide span {
       color: var(--muted);
       font-size: 12px;
-      margin-left: 4px;
     }
-    .filter-buttons button.active {
-      background: #eaf4fb;
-      border-color: var(--link);
-      color: var(--link);
+    .priority-guide strong { color: var(--text); }
+    .priority-badge {
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 11px;
+      font-weight: 800;
+      justify-content: center;
+      line-height: 1;
+      min-width: 30px;
+      padding: 5px 7px;
     }
+    .priority-badge.p1 { background: #fff0ed; color: #b42318; }
+    .priority-badge.p2 { background: #fff7df; color: #8a5b00; }
+    .priority-badge.p3 { background: #eef5fa; color: #075985; }
     .result-table { overflow-x: auto; }
     .result-table-head,
     .result-summary {
@@ -2173,6 +2243,7 @@ function htmlSummary(summary, context = {}) {
     </div>
   </header>
   <main>
+    ${summary.previewMode ? `<div class="preview-notice"><strong>Design preview only</strong><span>These rows demonstrate the report layout. They are not findings from a LiveLabs scan.</span></div>` : ""}
     <div class="totals">
       ${metric("Items tested", catalogItems.length || summary.counts.total)}
       ${metric("Passed", catalogItems.length > 0 ? itemCounts.passed : summary.counts.passed, "pass")}
@@ -2191,7 +2262,7 @@ function htmlSummary(summary, context = {}) {
   <script>
     const REVIEW_STORAGE_KEY = "${REVIEW_STORAGE_KEY}";
     const qaReviewItems = JSON.parse(document.getElementById("qa-review-items")?.textContent || "{}");
-    const filterButtons = Array.from(document.querySelectorAll("[data-item-filter]"));
+    const filterSelect = document.querySelector("[data-item-filter]");
     const itemRows = Array.from(document.querySelectorAll("[data-item-row]"));
     const filterStatus = document.querySelector("[data-filter-status]");
     const itemSearch = document.querySelector("[data-item-search]");
@@ -2204,6 +2275,9 @@ function htmlSummary(summary, context = {}) {
     function itemMatchesFilter(row) {
       if (activeFilter === "all") return true;
       const issueCodes = (row.getAttribute("data-issues") || "").split(/\\s+/).filter(Boolean);
+      if (activeFilter.startsWith("priority:")) {
+        return row.getAttribute("data-priority") === activeFilter.slice("priority:".length);
+      }
       return (
         row.getAttribute("data-status") === activeFilter ||
         row.getAttribute("data-type") === activeFilter ||
@@ -2225,11 +2299,7 @@ function htmlSummary(summary, context = {}) {
         row.hidden = !visibleRows.has(row);
         if (row.hidden) row.open = false;
       }
-      for (const button of filterButtons) {
-        const selected = button.getAttribute("data-item-filter") === activeFilter;
-        button.classList.toggle("active", selected);
-        button.setAttribute("aria-pressed", String(selected));
-      }
+      if (filterSelect) filterSelect.value = activeFilter;
       if (filterStatus) {
         filterStatus.innerText = matched.length
           ? "Showing " + (start + 1) + "-" + Math.min(start + size, matched.length) + " of " + matched.length
@@ -2239,9 +2309,9 @@ function htmlSummary(summary, context = {}) {
       if (previousPage) previousPage.disabled = currentPage <= 1 || matched.length === 0;
       if (nextPage) nextPage.disabled = currentPage >= pages || matched.length === 0;
     }
-    for (const button of filterButtons) {
-      button.addEventListener("click", () => {
-        activeFilter = button.getAttribute("data-item-filter") || "all";
+    if (filterSelect) {
+      filterSelect.addEventListener("change", () => {
+        activeFilter = filterSelect.value || "all";
         currentPage = 1;
         applyItemFilters();
       });
@@ -2523,21 +2593,54 @@ function reviewNavigationHtml(historyHref = "") {
 }
 
 function reportCatalogItems(items) {
-  return items.map((item) => {
-    const issues = (item.issues || []).filter((issue) => issue.code !== "CONTENT_RELEVANCE");
-    const tests = (item.tests || []).map((test) => {
-      if (test.classification?.code !== "CONTENT_RELEVANCE") return test;
-      return { ...test, status: test.expectedStatus || "passed", issues: [] };
-    });
-    const stillNeedsReview = issues.length > 0 || tests.some((test) => test.status !== test.expectedStatus && test.status !== "skipped");
-    return {
-      ...item,
-      issues,
-      tests,
-      issueCount: issues.length,
-      status: item.status === "failed" && !stillNeedsReview ? "passed" : item.status,
-    };
-  });
+  return items
+    .map((item) => {
+      const issues = (item.issues || [])
+        .map((issue) => {
+          const code = canonicalIssueCode(issue.code);
+          return code === issue.code ? issue : { ...issue, code, label: classificationLabel(code) };
+        })
+        .filter((issue) => issue.code !== "CONTENT_RELEVANCE");
+      const tests = (item.tests || []).map((test) => {
+        const code = canonicalIssueCode(test.classification?.code || "");
+        if (code !== "CONTENT_RELEVANCE") {
+          return code === test.classification?.code
+            ? test
+            : { ...test, classification: { ...test.classification, code, label: classificationLabel(code) } };
+        }
+        return { ...test, status: test.expectedStatus || "passed", issues: [] };
+      });
+      const stillNeedsReview = issues.length > 0 || tests.some((test) => test.status !== test.expectedStatus && test.status !== "skipped");
+      return {
+        ...item,
+        issues,
+        tests,
+        issueCount: issues.length,
+        status: item.status === "failed" && !stillNeedsReview ? "passed" : item.status,
+      };
+    })
+    .sort(
+      (left, right) =>
+        catalogStatusRank(left.status) - catalogStatusRank(right.status) ||
+        itemPriorityRank(left) - itemPriorityRank(right) ||
+        catalogItemDisplayTitle(left.catalogItem).localeCompare(catalogItemDisplayTitle(right.catalogItem)),
+    );
+}
+
+function canonicalFailureCategories(categories) {
+  const counts = new Map();
+  for (const category of categories || []) {
+    const code = canonicalIssueCode(category.code);
+    counts.set(code, (counts.get(code) || 0) + Number(category.count || 0));
+  }
+  return Array.from(counts.entries())
+    .map(([code, count]) => ({ code, count, label: classificationLabel(code) }))
+    .sort(
+      (left, right) =>
+        Number(issuePriority(left).slice(1)) - Number(issuePriority(right).slice(1)) ||
+        right.count - left.count ||
+        left.code.localeCompare(right.code),
+    );
 }
 
 function readCatalogAuthors(attachments) {
@@ -3325,6 +3428,12 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
     skipped: items.filter((item) => item.status === "skipped").length,
   };
   const types = Array.from(new Set(items.map((item) => item.catalogItem?.type || "catalog item"))).sort();
+  const priorityCounts = new Map(
+    PRIORITY_DEFINITIONS.map((priority) => [
+      priority.code,
+      items.filter((item) => itemPriority(item) === priority.code).length,
+    ]),
+  );
 
   return `<section class="results-panel" id="tested-items">
     <div class="results-heading">
@@ -3343,30 +3452,47 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
     <div class="result-tools">
       <label class="result-search">
         <span>Search results</span>
-        <input type="search" data-item-search placeholder="Name, type, WMS ID, check, or issue" />
+        <input type="search" data-item-search placeholder="Name, type, LiveLabs ID, check, or issue" />
       </label>
-      <div class="filter-buttons" role="group" aria-label="Filter overall regression results">
-        ${testedItemFilterButtonHtml("all", "All", items.length, true)}
-        ${testedItemFilterButtonHtml("failed", "Need review", statusCounts.failed)}
-        ${testedItemFilterButtonHtml("passed", "Passed", statusCounts.passed)}
-        ${statusCounts.skipped > 0 ? testedItemFilterButtonHtml("skipped", "Skipped", statusCounts.skipped) : ""}
+      <label class="result-filter">
+        <span>Filter results</span>
+        <select data-item-filter aria-label="Filter overall regression results">
+        ${testedItemFilterOptionHtml("all", "All results", items.length)}
+        <optgroup label="Priority">
+        ${PRIORITY_DEFINITIONS.map((priority) =>
+          testedItemFilterOptionHtml(
+            `priority:${priority.code}`,
+            `${priority.code} ${priority.label}`,
+            priorityCounts.get(priority.code) || 0,
+          )).join("\n")}
+        </optgroup>
+        <optgroup label="Issues">
+        ${categories
+          .map(
+            (category) =>
+              testedItemFilterOptionHtml(category.code, category.label, category.count),
+          )
+          .join("\n")}
+        </optgroup>
+        <optgroup label="Status">
+        ${testedItemFilterOptionHtml("failed", "Need review", statusCounts.failed)}
+        ${testedItemFilterOptionHtml("passed", "Passed", statusCounts.passed)}
+        ${statusCounts.skipped > 0 ? testedItemFilterOptionHtml("skipped", "Skipped", statusCounts.skipped) : ""}
+        </optgroup>
+        <optgroup label="Catalog type">
         ${types
           .map(
             (type) =>
-              testedItemFilterButtonHtml(
+              testedItemFilterOptionHtml(
                 type,
-                type,
+                catalogItemTypeLabel(type),
                 items.filter((item) => (item.catalogItem?.type || "catalog item") === type).length,
               ),
           )
           .join("\n")}
-        ${categories
-          .map(
-            (category) =>
-              testedItemFilterButtonHtml(category.code, category.label, category.count),
-          )
-          .join("\n")}
-      </div>
+        </optgroup>
+        </select>
+      </label>
       <label class="page-size">
         <span>Rows per page</span>
         <select data-item-page-size>
@@ -3376,10 +3502,13 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
         </select>
       </label>
     </div>
+    <div class="priority-guide" aria-label="Issue priority guide">
+      ${PRIORITY_DEFINITIONS.map((priority) => `<span><strong>${priority.code} ${priority.label}:</strong> ${escapeHtml(priority.description)}</span>`).join("\n")}
+    </div>
     <div class="result-table" role="table" aria-label="Overall regression results">
       <div class="result-table-head" role="row">
         <span>Status</span>
-        <span>Workshop or LiveStack</span>
+        <span>Catalog item</span>
         <span>Checks run</span>
         <span>Result</span>
       </div>
@@ -3400,8 +3529,8 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
   </section>`;
 }
 
-function testedItemFilterButtonHtml(filter, label, count, active = false) {
-  return `<button class="${active ? "active" : ""}" type="button" data-item-filter="${escapeAttribute(filter)}" aria-pressed="${active ? "true" : "false"}">${escapeHtml(label)} <span>${escapeHtml(String(count || 0))}</span></button>`;
+function testedItemFilterOptionHtml(filter, label, count) {
+  return `<option value="${escapeAttribute(filter)}">${escapeHtml(label)} (${escapeHtml(String(count || 0))})</option>`;
 }
 
 function testedItemRowHtml(item, runId, failures, context) {
@@ -3411,6 +3540,7 @@ function testedItemRowHtml(item, runId, failures, context) {
   const tests = item.tests || [];
   const sections = item.sections || [];
   const issueCodes = Array.from(new Set(issues.map((issue) => issue.code)));
+  const priority = itemPriority(item);
   const blockerCount = issues.filter((issue) => issue.severity === "blocker").length;
   const issueCount = Number(item.issueCount ?? issues.length);
   const checkCount = Number(item.counts?.total ?? tests.length);
@@ -3444,20 +3574,21 @@ function testedItemRowHtml(item, runId, failures, context) {
     data-item-row
     data-status="${escapeAttribute(item.status)}"
     data-type="${escapeAttribute(itemType)}"
+    data-priority="${escapeAttribute(priority)}"
     data-issues="${escapeAttribute(issueCodes.join(" "))}"
     data-search="${escapeAttribute(searchText)}">
     <summary class="result-summary">
       <span><span class="pill ${statusTone}">${escapeHtml(statusLabel)}</span></span>
       <span class="result-item">
         <strong>${escapeHtml(catalogItemDisplayTitle(item.catalogItem))}</strong>
-        <small>${escapeHtml([itemType, itemId ? `WMS ${itemId}` : ""].filter(Boolean).join(" / "))}</small>
+        <small>${escapeHtml([catalogItemTypeLabel(itemType), catalogItemIdentifier(item.catalogItem)].filter(Boolean).join(" / "))}</small>
       </span>
       <span class="result-checks">
         <strong>${escapeHtml(String(checkCount))} check${checkCount === 1 ? "" : "s"}</strong>
         <small>${escapeHtml(sections.join(", ") || "No section metadata")}</small>
       </span>
       <span class="result-finding">
-        <strong>${escapeHtml(issueLabel)}</strong>
+        <strong>${priority ? `<span class="priority-badge ${escapeAttribute(priority.toLowerCase())}">${escapeHtml(priority)}</span> ` : ""}${escapeHtml(issueLabel)}</strong>
         <small>${escapeHtml(issues.map(issueDisplayLabel).join(", ") || "All completed checks passed")}</small>
       </span>
     </summary>
@@ -3490,7 +3621,7 @@ function itemDetailHtml(item, failures, context) {
         )}</p>
       </div>
       <div class="result-actions">
-        ${url ? `<a class="link-button" href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">Open workshop</a>` : ""}
+        ${url ? `<a class="link-button" href="${escapeAttribute(stableWorkshopSourceUrl(url, url))}" target="_blank" rel="noreferrer">${escapeHtml(catalogItemOpenLabel(item.catalogItem?.type))}</a>` : ""}
         ${issues.length > 0 && !hasParIssues ? `<button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}">Add to Retest List</button>` : ""}
       </div>
     </div>
@@ -3544,6 +3675,13 @@ function operatorIssueListHtml(issues, item, context) {
   </div>`;
 }
 
+function priorityBadgeHtml(issue) {
+  const priority = issuePriority(issue);
+  return priority
+    ? `<span class="priority-badge ${escapeAttribute(priority.toLowerCase())}" title="${escapeAttribute(priorityDefinition(priority).description)}">${escapeHtml(priority)}</span>`
+    : "";
+}
+
 function operatorIssueHtml(issue, index, item, context) {
   if (issue.code === "STALE_PAR_LINK" || issue.code === "PAR_LINK_UNVERIFIED") {
     return parOperatorIssueHtml(issue, index, item, context);
@@ -3553,16 +3691,19 @@ function operatorIssueHtml(issue, index, item, context) {
   }
 
   const severityLabel = issue.severity === "blocker" ? "Blocking issue" : "Needs fix";
-  const affected = operatorIssueAffectedItemsHtml(issue);
+  const affected = operatorIssueAffectedItemsHtml(issue, item);
   const location = issueLocationForItem(issue, item);
+  const reproduction = operatorIssueReproduction(issue, item);
 
   return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
     <div class="operator-issue-heading">
+      ${priorityBadgeHtml(issue)}
       <span class="pill ${issue.severity === "blocker" ? "fail" : "warn"}">${escapeHtml(severityLabel)}</span>
       <h4>${escapeHtml(index + 1)}. ${escapeHtml(issueDisplayLabel(issue))}</h4>
     </div>
     <div class="issue-guidance">
       <p><strong>What is wrong:</strong> ${escapeHtml(operatorIssueProblem(issue, item))}</p>
+      ${reproduction ? `<p><strong>How to reproduce:</strong> ${escapeHtml(reproduction)}</p>` : ""}
       <p><strong>What to change:</strong> ${escapeHtml(operatorIssueAction(issue, item))}</p>
     </div>
     ${affected}
@@ -3586,6 +3727,7 @@ function parOperatorIssueHtml(issue, index, item, context) {
 
   return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
     <div class="operator-issue-heading">
+      ${priorityBadgeHtml(issue)}
       <span class="pill ${issue.code === "STALE_PAR_LINK" ? "fail" : "warn"}">${escapeHtml(severityLabel)}</span>
       <h4>${escapeHtml(index + 1)}. ${escapeHtml(issueDisplayLabel(issue))}</h4>
     </div>
@@ -3660,12 +3802,15 @@ function unifiedParSourceHtml(source, catalogItem) {
     source.sourceLine ? `Markdown line ${source.sourceLine}` : source.location || "",
   ].filter(Boolean);
 
+  const catalogUrl = catalogItem?.normalized_href || catalogItem?.absolute_url || catalogItem?.href || "";
+  const actionUrl = stableWorkshopSourceUrl(source.pageUrl || "", catalogUrl);
+
   return `<div class="par-source-row">
     <div class="par-source-copy">
       <strong>${escapeHtml(labLabel || "Workshop source")}</strong>
       ${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join("")}
     </div>
-    ${source.pageUrl ? externalActionLinkHtml(source.pageUrl, labNumber ? "Open exact lab" : "Open source page") : ""}
+    ${actionUrl ? externalActionLinkHtml(actionUrl, "Open workshop") : ""}
   </div>`;
 }
 
@@ -3757,7 +3902,7 @@ function parScanOperatorIssueHtml(issue, index, item, context) {
   const pageCount = details.length || 1;
   return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
     <div class="par-entry-heading">
-      <div class="operator-issue-heading"><span class="pill warn">Page not scanned</span><h4>${escapeHtml(index + 1)}. ${escapeHtml(issueDisplayLabel(issue))}</h4></div>
+      <div class="operator-issue-heading">${priorityBadgeHtml(issue)}<span class="pill warn">Page not scanned</span><h4>${escapeHtml(index + 1)}. ${escapeHtml(issueDisplayLabel(issue))}</h4></div>
       <button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}" data-review-add-label="Add to PAR Retest" data-review-selected-label="In PAR Retest">Add to PAR Retest</button>
     </div>
     <div class="issue-guidance"><p><strong>What failed:</strong> ${escapeHtml(`${pageCount} workshop page${pageCount === 1 ? " was" : "s were"} not scanned, so PAR links on ${pageCount === 1 ? "that page" : "those pages"} were not checked.`)}</p><p><strong>What to change:</strong> Open each entry below and follow its specific fix.</p></div>
@@ -3771,11 +3916,11 @@ function parScanOperatorIssueHtml(issue, index, item, context) {
 function parScanLocationHtml(detail, index, item) {
   const rawLabel = detail.label || detail.page_type || `Source page ${index + 1}`;
   const label = conciseManifestLocation(rawLabel);
-  const labNumber = Number(String(label).match(/\bLab\s+(\d+)\b/i)?.[1] || 0);
   const sourceUrl = detail.source_file_url || detail.sourceFileUrl || (/[-_]source$/i.test(detail.page_type || "") ? detail.page_url || detail.pageUrl : "");
   const pageUrl = sourceUrl ? detail.page_url || detail.pageUrl || "" : detail.page_url || detail.pageUrl || "";
   const error = sanitizeSensitiveText(detail.error || "The page could not be scanned.");
   const fallbackUrl = item.catalogItem?.normalized_href || item.catalogItem?.absolute_url || item.catalogItem?.href || "";
+  const actionPageUrl = stableWorkshopSourceUrl(pageUrl, fallbackUrl);
   const missingSource = /HTTP\s+404|returned\s+404|status\s+404/i.test(error) && /[-_]source$/i.test(detail.page_type || "");
   const finding = missingSource
     ? "This lab is listed in the workshop manifest, but its Markdown source file returned HTTP 404."
@@ -3786,8 +3931,8 @@ function parScanLocationHtml(detail, index, item) {
   return `<div class="par-source-row">
     <div class="par-source-copy"><strong>${escapeHtml(label)}</strong><span><b>What failed:</b> ${escapeHtml(finding)}</span><span><b>What to change:</b> ${escapeHtml(fix)}</span></div>
     <div class="result-actions">
-      ${pageUrl && pageUrl !== sourceUrl ? externalActionLinkHtml(pageUrl, labNumber ? `Open Lab ${labNumber}` : `Open ${label}`) : ""}
-      ${externalActionLinkHtml(sourceUrl || pageUrl || fallbackUrl, sourceUrl ? "Open missing source" : pageUrl ? "Open page to check" : "Open workshop")}
+      ${actionPageUrl && actionPageUrl !== sourceUrl ? externalActionLinkHtml(actionPageUrl, "Open workshop") : ""}
+      ${externalActionLinkHtml(sourceUrl || actionPageUrl || fallbackUrl, sourceUrl ? "Open missing source" : "Open workshop")}
     </div>
     <details class="issue-technical"><summary>Technical details</summary><pre>${escapeHtml(error)}</pre></details>
   </div>`;
@@ -3809,9 +3954,15 @@ function issueLocationForItem(issue, item) {
   const detail = primaryOperatorIssueDetail(issue);
   const section = humanIssueSection(issue.section || test?.section || detail?.section || "Workshop page");
   const locationHint = sourceLocationLabel(detail) || detail?.location || detail?.heading || "";
-  const label = locationHint && !section.toLowerCase().includes(String(locationHint).toLowerCase())
-    ? `${section} / ${locationHint}`
-    : section;
+  const sectionKey = section.toLowerCase();
+  const locationKey = String(locationHint).toLowerCase();
+  const label = !locationHint
+    ? section
+    : locationKey.includes(sectionKey)
+      ? String(locationHint)
+      : sectionKey.includes(locationKey)
+        ? section
+        : `${section} / ${locationHint}`;
   const detailText = detail?.text || detail?.alt || detail?.object_name || "";
   const catalogUrl = item.catalogItem?.normalized_href || item.catalogItem?.absolute_url || item.catalogItem?.href || "";
   const url = stableWorkshopSourceUrl(
@@ -3822,7 +3973,7 @@ function issueLocationForItem(issue, item) {
     label,
     detail: detailText,
     url: safeExternalUrl(url),
-    actionLabel: sourceLocationActionLabel(detail),
+    actionLabel: sourceLocationActionLabel(detail, item.catalogItem?.type),
   };
 }
 
@@ -3831,14 +3982,8 @@ function sourceLocationLabel(detail) {
   return [detail.labTitle, detail.section].filter(Boolean).join(" / ");
 }
 
-function sourceLocationActionLabel(detail) {
-  if (!detail?.labTitle) {
-    const section = String(detail?.location || "").split("/")[0]?.trim();
-    return section ? `Open ${section}` : "Open workshop instructions";
-  }
-  if (detail.labNumber) return `Open Lab ${detail.labNumber}`;
-  const title = String(detail.labTitle).trim();
-  return `Open ${title}`;
+function sourceLocationActionLabel(_detail, catalogItemType) {
+  return catalogItemOpenLabel(catalogItemType);
 }
 
 function stableWorkshopSourceUrl(value, fallback) {
@@ -3846,9 +3991,29 @@ function stableWorkshopSourceUrl(value, fallback) {
   if (!candidate) return safeExternalUrl(fallback);
   try {
     const url = new URL(candidate);
-    return isSessionDependentWorkshopUrl(url) ? safeExternalUrl(fallback) : url.toString();
+    if (isSessionDependentWorkshopUrl(url)) return cleanWorkshopActionUrl(fallback);
+    return cleanWorkshopActionUrl(url.toString());
   } catch {
-    return safeExternalUrl(fallback);
+    return cleanWorkshopActionUrl(fallback);
+  }
+}
+
+function cleanWorkshopActionUrl(value) {
+  const candidate = safeExternalUrl(value);
+  if (!candidate) return "";
+  try {
+    const url = new URL(candidate);
+    if (
+      url.hostname.toLowerCase() === "livelabs.oracle.com" &&
+      url.pathname.toLowerCase().startsWith("/ords/")
+    ) {
+      for (const key of Array.from(url.searchParams.keys())) {
+        if (/^(?:lab|p\d+_lab)$/i.test(key)) url.searchParams.delete(key);
+      }
+    }
+    return url.toString();
+  } catch {
+    return "";
   }
 }
 
@@ -3893,14 +4058,14 @@ function safeExternalUrl(value) {
   }
 }
 
-function operatorIssueAffectedItemsHtml(issue) {
+function operatorIssueAffectedItemsHtml(issue, item) {
   const details = operatorIssueDetails(issue);
   if (details.length === 0) {
     return "";
   }
 
   const entries = details
-    .map((detail, index) => operatorIssueDetail(detail, index))
+    .map((detail, index) => operatorIssueDetail(detail, index, item))
     .filter(Boolean)
     .slice(0, 8);
 
@@ -3916,6 +4081,7 @@ function operatorIssueAffectedItemsHtml(issue) {
         ${entry.url ? `<code>${escapeHtml(entry.url)}</code>` : ""}
         ${entry.detail ? `<span>${escapeHtml(entry.detail)}</span>` : ""}
       </div>
+      ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, "Open exact lab") : ""}
     </div>`).join("")}
   </div>`;
 }
@@ -3933,11 +4099,20 @@ function operatorIssueAffectedHeading(issue) {
   if (issue.code === "BROKEN_VISIBLE_LINK") return "Broken link to replace or remove";
   if (issue.code === "BROKEN_VISIBLE_IMAGE") return "Broken image to replace or remove";
   if (issue.code === "BROKEN_EMBEDDED_CONTENT") return "Broken embedded item to repair or remove";
+  if (issue.code === "ASSET_ACTION_FAILED") return "Asset action that failed";
+  if (issue.code === "CONTENT_TEXT_DEFECT") return "Placeholder or misspelling to replace";
   return "Affected item";
 }
 
 function operatorIssueProblem(issue, item) {
   const details = operatorIssueDetails(issue);
+  const issueCode = canonicalIssueCode(issue.code);
+  if (issueCode === "WORKSHOP_NOT_AVAILABLE") {
+    return `${catalogItemDisplayTitle(item?.catalogItem)} could not be opened from its published LiveLabs catalog route.`;
+  }
+  if (issueCode === "AUTHENTICATION_REQUIRED") {
+    return `The QA browser reached Oracle Sign In before it could inspect ${catalogItemDisplayTitle(item?.catalogItem)}. The identity URL is the Oracle authentication page reached by the flow, not a workshop link to repair, and this does not prove that the catalog item is broken.`;
+  }
   if (issue.code === "BROKEN_VISIBLE_LINK" && details.length > 0) {
     const first = details[0] || {};
     const location = sourceLocationLabel(first) || first.location || humanIssueSection(issue.section);
@@ -3957,6 +4132,14 @@ function operatorIssueProblem(issue, item) {
   if (issue.code === "BROKEN_EMBEDDED_CONTENT" && details.length > 0) {
     return `${details.length} embedded item${details.length === 1 ? " does" : "s do"} not load.`;
   }
+  if (issue.code === "ASSET_ACTION_FAILED" && details.length > 0) {
+    const label = operatorIssueDetailLabel(details[0], 0) || "The listed asset action";
+    return `The LiveStack action "${label}" did not open, download, or navigate as expected.`;
+  }
+  if (issue.code === "CONTENT_TEXT_DEFECT" && details.length > 0) {
+    const exactText = operatorIssueDetailLabel(details[0], 0) || "The listed text";
+    return `The exact text "${exactText}" is unfinished placeholder or misspelled content that readers can see.`;
+  }
   if (issue.code === "CONTENT_RELEVANCE") {
     const detail = primaryOperatorIssueDetail(issue);
     const expectedTerms = Array.isArray(detail.expectedTerms) ? detail.expectedTerms.filter(Boolean) : [];
@@ -3967,10 +4150,34 @@ function operatorIssueProblem(issue, item) {
   return issue.message || issueDisplayLabel(issue);
 }
 
-function operatorIssueDetail(detail, index) {
+function operatorIssueReproduction(issue, item) {
+  const details = operatorIssueDetails(issue);
+  const first = details[0] || {};
+  const location = sourceLocationLabel(first) || first.location || humanIssueSection(issue.section);
+  const itemTitle = catalogItemDisplayTitle(item?.catalogItem);
+  switch (canonicalIssueCode(issue.code)) {
+    case "WORKSHOP_NOT_AVAILABLE":
+      return `Open "${itemTitle}" from LiveLabs search. The published card does not reach a usable item page.`;
+    case "AUTHENTICATION_REQUIRED":
+      return `Open "${itemTitle}" with the QA browser session. The run stopped at Oracle Sign In before content checks began.`;
+    case "ASSET_ACTION_FAILED":
+      return `Open ${itemTitle}, go to ${location}, and click "${operatorIssueDetailLabel(first, 0) || "the listed asset action"}".`;
+    case "CONTENT_TEXT_DEFECT":
+      return `Open ${itemTitle}, go to ${location}, and search for "${operatorIssueDetailLabel(first, 0) || "the listed text"}".`;
+    case "BROKEN_VISIBLE_LINK":
+      return `Open ${itemTitle}, go to ${location}, and click "${operatorIssueDetailLabel(first, 0) || "the listed link"}".`;
+    case "BROKEN_VISIBLE_IMAGE":
+    case "BROKEN_EMBEDDED_CONTENT":
+      return `Open ${itemTitle} and go to ${location}; the listed item does not render.`;
+    default:
+      return "";
+  }
+}
+
+function operatorIssueDetail(detail, index, item) {
   const label = operatorIssueDetailLabel(detail, index);
   if (!label) return null;
-  if (!detail || typeof detail !== "object") return { label, url: "", detail: "" };
+  if (!detail || typeof detail !== "object") return { label, url: "", detail: "", actionUrl: "" };
   const url = safeExternalUrl(detail.url || detail.href || detail.src || "");
   const internalPreview = isInternalPreviewContentUrl(url);
   const result = internalPreview
@@ -3978,10 +4185,12 @@ function operatorIssueDetail(detail, index) {
     : detail.status
       ? `HTTP ${detail.status}`
       : detail.error
-        ? "Could not connect"
+        ? shortFailure(detail.error)
         : "";
   const location = detail.location ? `Found in ${detail.location}` : "";
-  return { label, url, detail: [location, result].filter(Boolean).join(" / ") };
+  const fallbackUrl = item?.catalogItem?.normalized_href || item?.catalogItem?.absolute_url || item?.catalogItem?.href || "";
+  const actionUrl = stableWorkshopSourceUrl(detail.pageUrl || detail.page_url || "", fallbackUrl);
+  return { label, url, detail: [location, result].filter(Boolean).join(" / "), actionUrl };
 }
 
 function isInternalPreviewContentUrl(value) {
@@ -4020,10 +4229,11 @@ function operatorIssueDetailLabel(detail, index) {
 }
 
 function operatorIssueAction(issue, item) {
-  switch (issue.code) {
-    case "ROUTING_INVALID_WORKSHOP_ID":
-    case "ROUTING_FAILED":
-      return "Open the item in LiveLabs and correct its catalog route or restore the missing page. Then rerun this item.";
+  switch (canonicalIssueCode(issue.code)) {
+    case "WORKSHOP_NOT_AVAILABLE":
+      return "If this item was retired, disable or unpublish its catalog card. If it should remain active, correct its LiveLabs ID or route, republish it, and rerun this item.";
+    case "AUTHENTICATION_REQUIRED":
+      return "Refresh the QA browser sign-in session and rerun this item. Do not change the workshop unless the rerun reaches it and reports a content problem.";
     case "BROKEN_VISIBLE_IMAGE":
       return "Replace or remove each image listed below, republish the workshop, then rerun this item.";
     case "BROKEN_VISIBLE_LINK":
@@ -4033,17 +4243,17 @@ function operatorIssueAction(issue, item) {
     case "BROKEN_EMBEDDED_CONTENT":
       return "Repair or remove each embedded item listed below, republish the workshop, then rerun this item.";
     case "CONTENT_TEXT_DEFECT":
-      return "Correct the unfinished or incorrect text, republish the item, and rerun this check.";
+      return "Replace the exact placeholder or misspelled text listed below, republish the item, and rerun this check.";
     case "CONTENT_RELEVANCE":
       return `Open the ${humanIssueSection(issue.section)} page below. If it is blank or shows another workshop, correct that instructions-page configuration. If the page is correct, update the catalog title or metadata for "${item?.catalogItem?.title || "this workshop"}". Republish, then rerun this item.`;
     case "INSTRUCTIONS_FLOW":
       return "Correct the instructions route or content that did not open, republish, and rerun this item.";
     case "ASSET_ACTION_FAILED":
-      return "Repair the affected asset action or remove it if it is no longer required, then rerun this item.";
+      return "Repair the exact asset action listed below, or remove that action if it is no longer required, then rerun this item.";
     case "STALE_PAR_LINK":
       return "Replace the broken PAR link at every recorded source location, republish, and rerun the PAR audit.";
     case "PAR_LINK_UNVERIFIED":
-      return "Run the PAR audit for this WMS item again before changing its content.";
+      return "Run the PAR audit for this LiveLabs item again before changing its content.";
     case "PAR_SCAN_INCOMPLETE":
       return "Restore or correct every source page that could not be scanned, then rerun the PAR audit.";
     default:
@@ -4173,6 +4383,27 @@ function catalogItemDisplayTitle(item) {
   return item.title || item.slug || item.id || "Catalog item";
 }
 
+function catalogItemTypeLabel(type) {
+  if (type === "livestack") return "LiveStack";
+  if (type === "workshop") return "Workshop";
+  if (type === "sprint") return "Sprint";
+  if (type === "event") return "Event";
+  return type || "Catalog item";
+}
+
+function catalogItemIdentifier(item) {
+  const id = item?.id || item?.slug || "";
+  if (!id) return "";
+  return item?.type === "livestack" ? `LiveStack ID ${id}` : `LiveLabs ID ${id}`;
+}
+
+function catalogItemOpenLabel(type) {
+  if (type === "livestack") return "Open LiveStack";
+  if (type === "sprint") return "Open Sprint";
+  if (type === "event") return "Open event";
+  return "Open workshop";
+}
+
 function catalogItemLabel(test) {
   const item = test.catalogItem;
   if (!item) {
@@ -4195,12 +4426,13 @@ function issuesForTest(test) {
     return [];
   }
 
-  const definition = issueTypeDefinition(test.classification.code);
+  const code = canonicalIssueCode(test.classification.code);
+  const definition = issueTypeDefinition(code);
   return [
     {
-      code: test.classification.code,
-      label: test.classification.label || definition.label,
-      severity: issueSeverityFromCode(test.classification.code),
+      code,
+      label: code === test.classification.code ? test.classification.label || definition.label : definition.label,
+      severity: issueSeverityFromCode(code),
       message: failureExplanation(test),
       details: test.errors?.[0] ? { error: singleLine(test.errors[0]) } : undefined,
     },
@@ -4208,7 +4440,7 @@ function issuesForTest(test) {
 }
 
 function issueSeverityFromCode(code) {
-  if (/^ROUTING_|TIMEOUT$/i.test(code)) {
+  if (/^(?:WORKSHOP_NOT_AVAILABLE|ROUTING_|TIMEOUT)$/i.test(canonicalIssueCode(code))) {
     return "blocker";
   }
 
@@ -4383,11 +4615,11 @@ function failureExplanation(failure) {
     return `The workshop route opened, and the test found ${structuredIssues.length} separate issues on this page. Review each issue block below; they belong to the same workshop card.`;
   }
 
-  switch (failure.classification.code) {
-    case "ROUTING_INVALID_WORKSHOP_ID":
-      return `The test opened the indexed catalog link, but LiveLabs redirected to ${finalTitle} with an invalid workshop route. This is a user-facing routing issue for this catalog item.`;
-    case "ROUTING_FAILED":
-      return "The test could not finish opening the indexed catalog item. Review the reached URL, screenshot, and trace to see whether the page hung, redirected, or failed to load.";
+  switch (canonicalIssueCode(failure.classification.code)) {
+    case "WORKSHOP_NOT_AVAILABLE":
+      return `The published LiveLabs catalog item did not reach a usable page after retries. The browser ended at ${finalTitle}.`;
+    case "AUTHENTICATION_REQUIRED":
+      return "The QA browser reached Oracle Sign In before the item could be inspected. Refresh the QA sign-in session and rerun before asking the workshop owner to change anything.";
     case "BROKEN_VISIBLE_IMAGE":
       return "A visible image on the page did not load correctly.";
     case "BROKEN_VISIBLE_LINK":
@@ -4412,11 +4644,31 @@ function failureExplanation(failure) {
 }
 
 function issueTypeDefinition(code) {
-  return ISSUE_TYPE_DEFINITIONS.find((item) => item.code === code) || {
-    code,
-    label: code,
+  const canonicalCode = canonicalIssueCode(code);
+  return ISSUE_TYPE_DEFINITIONS.find((item) => item.code === canonicalCode) || {
+    code: canonicalCode,
+    label: canonicalCode,
     description: "The report could not map this failure to a more specific known issue type yet.",
+    priority: "P3",
   };
+}
+
+function priorityDefinition(code) {
+  return PRIORITY_DEFINITIONS.find((item) => item.code === code) || PRIORITY_DEFINITIONS.at(-1);
+}
+
+function issuePriority(issue) {
+  return issueTypeDefinition(issue?.code || "UNCLASSIFIED_FAILURE").priority || "P3";
+}
+
+function itemPriority(item) {
+  const priorities = (item?.issues || []).map(issuePriority);
+  return priorities.sort((left, right) => Number(left.slice(1)) - Number(right.slice(1)))[0] || "";
+}
+
+function itemPriorityRank(item) {
+  const priority = itemPriority(item);
+  return priority ? Number(priority.slice(1)) : Number.MAX_SAFE_INTEGER;
 }
 
 function issueTypeGuideHtml() {
@@ -4425,7 +4677,7 @@ function issueTypeGuideHtml() {
     <div class="issue-guide-grid">
       ${ISSUE_TYPE_DEFINITIONS.map(
         (item) => `<div class="issue-guide-item">
-          <strong>${escapeHtml(item.label)}</strong>
+          <strong><span class="priority-badge ${escapeAttribute(item.priority.toLowerCase())}">${escapeHtml(item.priority)}</span> ${escapeHtml(item.label)}</strong>
           <span>${escapeHtml(item.description)}</span>
         </div>`,
       ).join("\n")}
@@ -4757,6 +5009,11 @@ function rewriteParReportWithTimeline(outputDir, reportsRoot, timeline) {
       ...timeline,
     };
     fs.writeFileSync(path.join(outputDir, "par-links.html"), parLinksPageHtml(summary, pageContext), "utf-8");
+    fs.writeFileSync(
+      path.join(outputDir, "par-retest-list.html"),
+      parRetestListPageHtml(summary, pageContext),
+      "utf-8",
+    );
   } catch {
     // A damaged historical summary must not block publishing the current report.
   }

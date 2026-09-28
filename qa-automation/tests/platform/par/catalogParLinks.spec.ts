@@ -34,7 +34,7 @@ import {
 import { test } from "../../support/test.js";
 import type { AuthRuntimeConfig } from "../../support/authRuntime.js";
 
-const PAR_CATALOG_TAGS = ["@par", "@catalog", "@scheduled", "@workshop", "@livestack"];
+const PAR_CATALOG_TAGS = ["@par", "@catalog", "@scheduled", "@workshop", "@livestack", "@sprint", "@event"];
 const loadResult = loadCatalogIndex();
 const catalogItems = catalogIndexItems();
 test.use({ trace: "off", video: "off", screenshot: "off" });
@@ -83,13 +83,15 @@ test.describe("Generated catalog PAR link audit", { tag: PAR_CATALOG_TAGS }, () 
             contextName,
             item.type === "workshop"
               ? { expectedPaths: ["/view-workshop", "/run-workshop"] }
+              : item.type === "sprint" || item.type === "event"
+                ? { acceptAnyPublicRoute: true }
               : undefined,
           );
           if (item.type === "workshop") {
             if (!isDirectWorkshopInstructions(targetPage)) {
               await new WorkshopLandingPage(targetPage).startButton.waitFor({ state: "visible", timeout: 20_000 });
             }
-          } else {
+          } else if (item.type === "livestack") {
             await new LiveStackLandingPage(targetPage).assertLoaded(item.title);
           }
         };

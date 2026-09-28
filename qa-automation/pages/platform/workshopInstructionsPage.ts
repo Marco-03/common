@@ -4,6 +4,7 @@ import { BasePage } from "../basePage.js";
 import {
   assertNoContentQualityIssues,
   attachContentQualityIssues,
+  collectTextDefectDetails,
   contentQualityIssue,
   type ContentQualityIssue,
 } from "../../tests/support/contentQuality.js";
@@ -14,6 +15,7 @@ interface InstructionContentQualityOptions {
   expectedTerms?: string[];
   expectedTermsMode?: "all" | "any";
   linkLimit?: number;
+  allowCustomVideoEmbeds?: boolean;
 }
 
 interface LinkCandidate {
@@ -66,7 +68,7 @@ export class WorkshopInstructionsPage extends BasePage {
 
     issues.push(...(await this.collectObviousTextDefectIssues(contentBody, options.contextName)));
     issues.push(...(await this.collectBrokenVisibleImageIssues(contentBody, options.contextName)));
-    issues.push(...(await this.collectBrokenEmbeddedContentIssues(contentBody, options.contextName)));
+    issues.push(...(await this.collectBrokenEmbeddedContentIssues(contentBody, options.contextName, options.allowCustomVideoEmbeds)));
     issues.push(...(await this.collectBrokenLinkIssues(contentBody, options)));
 
     await attachContentQualityIssues(testInfo, issues, options.contextName);
@@ -124,8 +126,7 @@ export class WorkshopInstructionsPage extends BasePage {
     contentBody: Locator,
     contextName: string,
   ): Promise<ContentQualityIssue[]> {
-    const bodyText = await contentBody.innerText({ timeout: BasePage.DEFAULT_TIMEOUT_MS });
-    const defects = TEXT_DEFECT_PATTERNS.filter(({ pattern }) => pattern.test(bodyText)).map(({ label }) => label);
+    const defects = await collectTextDefectDetails(contentBody, this.page.url());
 
     if (defects.length === 0) return [];
     return [
@@ -133,7 +134,7 @@ export class WorkshopInstructionsPage extends BasePage {
         "CONTENT_TEXT_DEFECT",
         "Text needs correction",
         "major",
-        `${contextName} contains ${defects.join(", ")}.`,
+        `${contextName} contains visible placeholder text or misspellings: ${defects.map((defect) => defect.marker).join(", ")}.`,
         defects,
       ),
     ];
@@ -171,6 +172,7 @@ export class WorkshopInstructionsPage extends BasePage {
         .map((image) => ({
           alt: image.alt,
           src: image.currentSrc || image.src,
+          source: image.getAttribute("src") || "",
           naturalWidth: image.naturalWidth,
           naturalHeight: image.naturalHeight,
           complete: image.complete,
@@ -195,13 +197,33 @@ export class WorkshopInstructionsPage extends BasePage {
       }
       broken[0]?.scrollIntoView({ block: "center", inline: "nearest" });
     });
+    const sourceLocations = await locateWorkshopSourceLinks(
+      this.page,
+      brokenImages.flatMap((image) => [image.src, image.source]).filter(Boolean),
+    ).catch(() => []);
+    const sourceByUrl = new Map(sourceLocations.map((location) => [location.url, location]));
+    const locatedBrokenImages = brokenImages.map((image) => {
+      const source = sourceByUrl.get(image.src) || sourceByUrl.get(image.source);
+      if (!source) return image;
+      return {
+        ...image,
+        pageUrl: source.pageUrl,
+        sourceFileUrl: source.sourceFileUrl,
+        labTitle: source.labTitle,
+        labNumber: source.labNumber,
+        section: source.section,
+        instruction: source.instruction,
+        sourceLine: source.sourceLine,
+        location: [source.labTitle, source.section].filter(Boolean).join(" / "),
+      };
+    });
     return [
       contentQualityIssue(
         "BROKEN_VISIBLE_IMAGE",
         "Broken visible image",
         "major",
         `${contextName} shows ${brokenImages.length} broken image${brokenImages.length === 1 ? "" : "s"}.`,
-        brokenImages,
+        locatedBrokenImages,
       ),
     ];
   }
@@ -209,11 +231,29 @@ export class WorkshopInstructionsPage extends BasePage {
   private async collectBrokenEmbeddedContentIssues(
     contentBody: Locator,
     contextName: string,
+    allowCustomVideoEmbeds = false,
   ): Promise<ContentQualityIssue[]> {
     const brokenEmbeds = await contentBody.locator("iframe[src]:visible, video:visible, audio:visible, embed:visible, object:visible").evaluateAll(
-      (elements) =>
-        elements
+      (elements, allowCustomVideos) => {
+        const hasCustomVideoMarker = (element: Element) => {
+          const container = element.closest(
+            "[data-video-id], [data-video-url], [data-youtube-id], [data-vimeo-id], [data-media-src], [data-src], .video-container, .video-wrapper, .youtube, .vimeo, .ll-video, .livelabs-video",
+          );
+          if (!container) return false;
+          const marker = [
+            "data-video-id",
+            "data-video-url",
+            "data-youtube-id",
+            "data-vimeo-id",
+            "data-media-src",
+            "data-src",
+          ].some((name) => Boolean(container.getAttribute(name)?.trim()));
+          const className = String(container.getAttribute("class") || "");
+          return marker || /(?:^|\s)(?:video-container|video-wrapper|youtube|vimeo|ll-video|livelabs-video)(?:\s|$)/i.test(className);
+        };
+        return elements
           .map((element) => {
+            if (allowCustomVideos && hasCustomVideoMarker(element)) return undefined;
             if (element instanceof HTMLIFrameElement) {
               return {
                 type: "iframe",
@@ -258,7 +298,9 @@ export class WorkshopInstructionsPage extends BasePage {
               error: "Unsupported embedded element",
             };
           })
-          .filter((record) => record.error || !record.src),
+          .filter((record): record is { type: string; src: string; error: string } => Boolean(record && (record.error || !record.src)));
+      },
+      allowCustomVideoEmbeds,
     );
 
     if (brokenEmbeds.length === 0) return [];
@@ -451,20 +493,3 @@ export class WorkshopInstructionsPage extends BasePage {
 }
 
 const AUTH_OR_RATE_LIMIT_STATUSES = new Set([401, 403, 429]);
-const TEXT_DEFECT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
-  { label: "placeholder text", pattern: /\blorem ipsum\b/i },
-  { label: "unfinished TODO marker", pattern: /\bTODO\b/i },
-  { label: "unfinished TBD marker", pattern: /\bTBD\b/i },
-  { label: "unfinished FIXME marker", pattern: /\bFIXME\b/i },
-  { label: "unresolved template token", pattern: /\{\{[^}]+\}\}/ },
-  { label: "misspelling: environment", pattern: /\benviroment\b/i },
-  { label: "misspelling: successful", pattern: /\bsuccesful\b/i },
-  { label: "misspelling: successfully", pattern: /\bsuccesfully\b/i },
-  { label: "misspelling: separate", pattern: /\bseperate\b/i },
-  { label: "misspelling: receive", pattern: /\brecieve\b/i },
-  { label: "misspelling: occurred", pattern: /\boccured\b/i },
-  { label: "misspelling: occurrence", pattern: /\boccurence\b/i },
-  { label: "misspelling: prerequisite", pattern: /\bprerequiste\b/i },
-  { label: "misspelling: individual", pattern: /\bindifidual\b/i },
-  { label: "misspelling: the", pattern: /\bteh\b/i },
-];

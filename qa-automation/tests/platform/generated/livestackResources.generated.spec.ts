@@ -1,5 +1,9 @@
 import { WorkshopInstructionsPage } from "../../../pages/platform/workshopInstructionsPage.js";
-import { assertAssetActionWorks, assertNoBrowserError } from "../../support/assetActions.js";
+import {
+  assertAssetActionWorks,
+  assertNoBrowserError,
+  isExpectedProtectedOracleAssetAction,
+} from "../../support/assetActions.js";
 import { signInIfRequired } from "../../support/authenticatedNavigation.js";
 import {
   attachCatalogItem,
@@ -8,7 +12,13 @@ import {
   expectedTermsForText,
   loadCatalogIndex,
 } from "../../support/catalogIndex.js";
-import { assertContentQuality } from "../../support/contentQuality.js";
+import {
+  assertContentQuality,
+  assertNoContentQualityIssues,
+  attachContentQualityIssues,
+  contentQualityIssue,
+  type ContentQualityIssue,
+} from "../../support/contentQuality.js";
 import { openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
 import { expect, test } from "../../support/test.js";
 
@@ -59,7 +69,19 @@ test.describe("LiveLabs generated LiveStack resource drilldown", { tag: GENERATE
         await attachCatalogItem(testInfo, item);
 
         const openLiveStack = async (contextName: string) => {
-          const navigation = await openIndexedCatalogItem(page, authRuntime, environmentConfig.base_url, item, contextName);
+          const navigation = await openIndexedCatalogItem(
+            page,
+            authRuntime,
+            environmentConfig.base_url,
+            item,
+            contextName,
+            { allowAuthenticationRequired: true },
+          );
+
+          test.skip(
+            navigation.authenticationRequired === true,
+            "LiveStack requires a QA sign-in session; this is temporarily excluded from owner-facing findings.",
+          );
 
           testInfo.annotations.push({
             type: "navigation",
@@ -92,6 +114,7 @@ test.describe("LiveLabs generated LiveStack resource drilldown", { tag: GENERATE
               contextName: `Generated LiveStack resource workshop: ${resource.title}`,
               expectedTerms: expectedTermsForText(resource.title),
               expectedTermsMode: "any",
+              allowCustomVideoEmbeds: true,
             });
 
             await workshopLandingPage.openLaunchOptions();
@@ -107,6 +130,7 @@ test.describe("LiveLabs generated LiveStack resource drilldown", { tag: GENERATE
                 contextName: `Generated LiveStack resource preview: ${resource.title}`,
                 expectedTerms: expectedTermsForText(resource.title),
                 expectedTermsMode: "any",
+                allowCustomVideoEmbeds: true,
               }, testInfo);
 
               if (previewPage !== page) {
@@ -135,6 +159,7 @@ test.describe("LiveLabs generated LiveStack resource drilldown", { tag: GENERATE
                 contextName: `Generated LiveStack resource tenancy: ${resource.title}`,
                 expectedTerms: expectedTermsForText(resource.title),
                 expectedTermsMode: "any",
+                allowCustomVideoEmbeds: true,
               }, testInfo);
 
               if (tenancyPage !== page) {
@@ -149,15 +174,43 @@ test.describe("LiveLabs generated LiveStack resource drilldown", { tag: GENERATE
           });
         }
 
+        const assetIssues: ContentQualityIssue[] = [];
         for (const assetAction of assetActions) {
           await test.step(`Click asset action: ${assetAction.title}`, async () => {
-            await openLiveStack(`Generated LiveStack asset action: ${assetAction.title}`);
-            await assertAssetActionWorks(page, liveStackLandingPage.clickAssetAction.bind(liveStackLandingPage), assetAction);
-            await signInIfRequired(page, authRuntime, `Generated LiveStack asset action: ${assetAction.title}`);
-            await assertNoBrowserError(page, `Generated LiveStack asset action: ${assetAction.title}`);
+            try {
+              await openLiveStack(`Generated LiveStack asset action: ${assetAction.title}`);
+              await assertAssetActionWorks(page, liveStackLandingPage.clickAssetAction.bind(liveStackLandingPage), assetAction);
+              if (!isExpectedProtectedOracleAssetAction(assetAction, page.url())) {
+                await signInIfRequired(page, authRuntime, `Generated LiveStack asset action: ${assetAction.title}`);
+              }
+              await assertNoBrowserError(page, `Generated LiveStack asset action: ${assetAction.title}`);
+            } catch (error) {
+              assetIssues.push(
+                contentQualityIssue(
+                  "ASSET_ACTION_FAILED",
+                  "Asset action failed",
+                  "major",
+                  `The LiveStack asset action "${assetAction.title}" did not work.`,
+                  [{
+                    label: assetAction.title,
+                    href: assetAction.href,
+                    location: "LiveStack Resources / Assets",
+                    error: errorMessage(error),
+                  }],
+                ),
+              );
+            }
           });
         }
+
+        const assetContext = `Generated LiveStack asset actions: ${item.title}`;
+        await attachContentQualityIssues(testInfo, assetIssues, assetContext);
+        assertNoContentQualityIssues(assetIssues, assetContext);
       });
     }
   }
 });
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

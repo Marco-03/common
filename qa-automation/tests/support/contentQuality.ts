@@ -1,4 +1,4 @@
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 
 import { BasePage } from "../../pages/basePage.js";
 import { parseIntegerFlag } from "../../config/projectConfig.js";
@@ -8,6 +8,7 @@ interface ContentQualityOptions {
   expectedTerms?: string[];
   expectedTermsMode?: "all" | "any";
   linkLimit?: number;
+  allowCustomVideoEmbeds?: boolean;
 }
 
 export type ContentQualityIssueSeverity = "blocker" | "major" | "minor";
@@ -38,6 +39,14 @@ interface BrokenImageRecord {
   naturalWidth: number;
   naturalHeight: number;
   complete: boolean;
+}
+
+export interface TextDefectRecord {
+  label: string;
+  marker: string;
+  text: string;
+  location: string;
+  pageUrl: string;
 }
 
 const DEFAULT_LINK_LIMIT = Math.max(0, parseIntegerFlag(process.env.QA_CONTENT_LINK_LIMIT, 50));
@@ -78,7 +87,7 @@ export async function collectContentQualityIssues(page: Page, options: ContentQu
 
   issues.push(...(await collectObviousTextDefectIssues(page, options.contextName)));
   issues.push(...(await collectBrokenVisibleImageIssues(page, options.contextName)));
-  issues.push(...(await collectBrokenEmbeddedContentIssues(page, options.contextName)));
+  issues.push(...(await collectBrokenEmbeddedContentIssues(page, options)));
   issues.push(...(await collectBrokenLinkIssues(page, options)));
 
   return issues;
@@ -140,8 +149,7 @@ export function contentQualityIssue(
 }
 
 async function collectObviousTextDefectIssues(page: Page, contextName: string): Promise<ContentQualityIssue[]> {
-  const bodyText = await page.locator("body").innerText({ timeout: BasePage.DEFAULT_TIMEOUT_MS });
-  const defects = TEXT_DEFECT_PATTERNS.filter(({ pattern }) => pattern.test(bodyText)).map(({ label }) => label);
+  const defects = await collectTextDefectDetails(page.locator("body"), page.url());
 
   if (defects.length === 0) {
     return [];
@@ -152,10 +160,61 @@ async function collectObviousTextDefectIssues(page: Page, contextName: string): 
       "CONTENT_TEXT_DEFECT",
       "Content text defect",
       "major",
-      `${contextName} has obvious placeholder text or misspellings: ${defects.join(", ")}.`,
+      `${contextName} has visible placeholder text or misspellings: ${defects.map((defect) => defect.marker).join(", ")}.`,
       defects,
     ),
   ];
+}
+
+export async function collectTextDefectDetails(contentBody: Locator, pageUrl: string): Promise<TextDefectRecord[]> {
+  return contentBody.evaluate(
+    (root, input) => {
+      const excluded = "pre, code, kbd, samp, script, style, textarea";
+      const textNodes: Text[] = [];
+      const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+
+      while (node) {
+        const parent = node.parentElement;
+        const text = node.textContent?.replace(/\s+/g, " ").trim() || "";
+        if (parent && text && !parent.closest(excluded)) {
+          const style = parent.ownerDocument.defaultView?.getComputedStyle(parent);
+          if (style?.display !== "none" && style?.visibility !== "hidden") textNodes.push(node as Text);
+        }
+        node = walker.nextNode();
+      }
+
+      return input.patterns.flatMap(({ label, source, flags }) => {
+        const pattern = new RegExp(source, flags.replace(/g/g, ""));
+        const matchedNode = textNodes.find((candidate) => pattern.test(candidate.textContent || ""));
+        if (!matchedNode?.parentElement) return [];
+
+        const marker = (matchedNode.textContent || "").match(pattern)?.[0] || "";
+        const element = matchedNode.parentElement.closest("p, li, td, th, figcaption, span, div") || matchedNode.parentElement;
+        const headings = Array.from(
+          element.ownerDocument.querySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading']"),
+        );
+        const preceding = headings.filter((heading) =>
+          Boolean(heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING),
+        );
+        const hierarchy: string[] = [];
+        for (const heading of preceding.slice(-4)) {
+          const headingText = (heading.textContent ?? "").replace(/\s+/g, " ").trim();
+          if (headingText && hierarchy.at(-1) !== headingText) hierarchy.push(headingText);
+        }
+        const text = (element.textContent || marker).replace(/\s+/g, " ").trim().slice(0, 240);
+        return [{ label, marker, text, location: hierarchy.join(" / "), pageUrl: input.pageUrl }];
+      });
+    },
+    {
+      pageUrl,
+      patterns: TEXT_DEFECT_PATTERNS.map(({ label, pattern }) => ({
+        label,
+        source: pattern.source,
+        flags: pattern.flags,
+      })),
+    },
+  );
 }
 
 async function collectBrokenVisibleImageIssues(page: Page, contextName: string): Promise<ContentQualityIssue[]> {
@@ -208,7 +267,7 @@ async function collectBrokenVisibleImageIssues(page: Page, contextName: string):
   ];
 }
 
-async function collectBrokenEmbeddedContentIssues(page: Page, contextName: string): Promise<ContentQualityIssue[]> {
+async function collectBrokenEmbeddedContentIssues(page: Page, options: ContentQualityOptions): Promise<ContentQualityIssue[]> {
   const brokenEmbeds: Array<{ type: string; src: string; title?: string; error: string }> = [];
   const iframes = await visibleContentLocator(page, "iframe[src]");
   const iframeCount = await iframes.count();
@@ -219,15 +278,35 @@ async function collectBrokenEmbeddedContentIssues(page: Page, contextName: strin
 
     const src = (await iframe.getAttribute("src")) ?? "";
     const title = (await iframe.getAttribute("title")) ?? "";
+    const customVideoEmbed = options.allowCustomVideoEmbeds
+      ? await iframe.evaluate((element) => {
+          const container = element.closest(
+            "[data-video-id], [data-video-url], [data-youtube-id], [data-vimeo-id], [data-media-src], [data-src], .video-container, .video-wrapper, .youtube, .vimeo, .ll-video, .livelabs-video",
+          );
+          if (!container) return false;
+          const marker = [
+            "data-video-id",
+            "data-video-url",
+            "data-youtube-id",
+            "data-vimeo-id",
+            "data-media-src",
+            "data-src",
+          ].some((name) => Boolean(container.getAttribute(name)?.trim()));
+          const className = String(container.getAttribute("class") || "");
+          return marker || /(?:^|\s)(?:video-container|video-wrapper|youtube|vimeo|ll-video|livelabs-video)(?:\s|$)/i.test(className);
+        })
+      : false;
     const handle = await iframe.elementHandle();
     const frame = await handle?.contentFrame();
 
     if (!src.trim()) {
+      if (customVideoEmbed) continue;
       brokenEmbeds.push({ type: "iframe", src, title, error: "Missing iframe src" });
       continue;
     }
 
     if (!frame) {
+      if (customVideoEmbed) continue;
       brokenEmbeds.push({ type: "iframe", src, title, error: "Iframe did not attach a frame" });
       continue;
     }
@@ -243,14 +322,32 @@ async function collectBrokenEmbeddedContentIssues(page: Page, contextName: strin
 
     const frameUrl = frame.url();
     if (!frameUrl || frameUrl === "about:blank" || frameUrl.startsWith("chrome-error://")) {
+      if (customVideoEmbed && (!frameUrl || frameUrl === "about:blank")) continue;
       brokenEmbeds.push({ type: "iframe", src, title, error: `Iframe loaded "${frameUrl || "empty url"}"` });
     }
   }
 
   const mediaElements = await visibleContentLocator(page, "video, audio, embed, object");
-  const brokenMedia = (await mediaElements.evaluateAll((elements) =>
-    elements
+  const brokenMedia = (await mediaElements.evaluateAll((elements, allowCustomVideoEmbeds) => {
+    const hasCustomVideoMarker = (element: Element) => {
+      const container = element.closest(
+        "[data-video-id], [data-video-url], [data-youtube-id], [data-vimeo-id], [data-media-src], [data-src], .video-container, .video-wrapper, .youtube, .vimeo, .ll-video, .livelabs-video",
+      );
+      if (!container) return false;
+      const marker = [
+        "data-video-id",
+        "data-video-url",
+        "data-youtube-id",
+        "data-vimeo-id",
+        "data-media-src",
+        "data-src",
+      ].some((name) => Boolean(container.getAttribute(name)?.trim()));
+      const className = String(container.getAttribute("class") || "");
+      return marker || /(?:^|\s)(?:video-container|video-wrapper|youtube|vimeo|ll-video|livelabs-video)(?:\s|$)/i.test(className);
+    };
+    return elements
       .map((element) => {
+        if (allowCustomVideoEmbeds && hasCustomVideoMarker(element)) return undefined;
         if (element instanceof HTMLMediaElement) {
           const source =
             element.currentSrc ||
@@ -287,8 +384,8 @@ async function collectBrokenEmbeddedContentIssues(page: Page, contextName: strin
           error: "Unsupported embedded element",
         };
       })
-      .filter((record) => record.error || !record.src),
-  )) as Array<{ type: string; src: string; error: string }>;
+      .filter((record): record is { type: string; src: string; error: string } => Boolean(record && (record.error || !record.src)));
+  }, options.allowCustomVideoEmbeds === true)) as Array<{ type: string; src: string; error: string }>;
 
   for (const media of brokenMedia) {
     brokenEmbeds.push(media);
@@ -303,7 +400,7 @@ async function collectBrokenEmbeddedContentIssues(page: Page, contextName: strin
       "BROKEN_EMBEDDED_CONTENT",
       "Broken embedded content",
       "major",
-      `${contextName} shows ${brokenEmbeds.length} broken embedded content item${brokenEmbeds.length === 1 ? "" : "s"}.`,
+      `${options.contextName} shows ${brokenEmbeds.length} broken embedded content item${brokenEmbeds.length === 1 ? "" : "s"}.`,
       brokenEmbeds,
     ),
   ];

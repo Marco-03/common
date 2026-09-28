@@ -325,7 +325,7 @@ test("renders overall regression items as searchable paginated expandable table 
                     url: "https://example.invalid/sample-data.zip",
                     status: 404,
                     location: "Lab 2: Prepare the data / Task 6: Download the sample",
-                    pageUrl: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/run-workshop?wid=877&lab=2",
+                    pageUrl: "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=lab-2",
                     sourceFileUrl: "https://livelabs.oracle.com/cdn/example/lab-2.md",
                     labTitle: "Lab 2: Prepare the data",
                     labNumber: 2,
@@ -398,12 +398,18 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v10"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v12"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
     assert.match(html, /\.result-row\[open\] > \.result-summary \{\s+background: #eaf4fb/);
     assert.match(html, /data-item-search/);
+    assert.match(html, /<select data-item-filter/);
+    assert.ok(html.indexOf('<optgroup label="Priority">') < html.indexOf('<optgroup label="Issues">'));
+    assert.ok(html.indexOf('value="priority:P1"') < html.indexOf('value="BROKEN_VISIBLE_LINK"'));
+    assert.match(html, /P2 High/);
+    assert.match(html, /LiveLabs ID 877/);
+    assert.doesNotMatch(html, /class="filter-buttons"/);
     assert.match(html, /data-item-page-size/);
     assert.match(html, /data-item-previous/);
     assert.match(html, /data-item-next/);
@@ -412,6 +418,7 @@ test("renders overall regression items as searchable paginated expandable table 
     assert.match(html, /Checks run \(1\)/);
     assert.match(html, /One visible link did not load/);
     assert.match(html, /What is wrong:/);
+    assert.match(html, /How to reproduce:/);
     assert.match(html, /What to change:/);
     assert.match(html, /Broken link to replace or remove/);
     assert.match(html, /Download the sample data/);
@@ -419,13 +426,15 @@ test("renders overall regression items as searchable paginated expandable table 
     assert.match(html, /HTTP 404/);
     assert.match(html, /Found in Lab 2: Prepare the data \/ Task 6: Download the sample/);
     assert.match(html, /Run on your tenancy instructions \/ Lab 2: Prepare the data/);
-    assert.match(html, />Open Lab 2<\/a>/);
+    assert.match(html, />Open workshop<\/a>/);
+    assert.match(html, />Open exact lab<\/a>/);
     assert.match(html, /Highlighted issue<\/a>/);
     assert.match(html, /screenshot\.png" target="_blank" rel="noreferrer"/);
     assert.match(html, /<summary>Raw automation details<\/summary>/);
     assert.match(html, /Open workshop/);
     assert.match(html, /Where to change it/);
-    assert.match(html, /run-workshop/);
+    assert.doesNotMatch(html, /href="[^"]*run-workshop/i);
+    assert.match(html, /href="https:\/\/livelabs\.oracle\.com\/cdn\/example\/workshops\/tenancy\/index\.html\?lab=lab-2"/i);
     assert.match(html, /Acknowledgements/);
     assert.match(html, /Ada Author/);
     assert.doesNotMatch(html, /mailto:owner\.one@oracle\.com/);
@@ -555,7 +564,7 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
             sources: [{
               label: "Preview instructions: Lab 2: Harvest Metadata from Oracle Object Storage",
               labNumber: 2,
-              pageUrl: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/run-workshop?wid=877&lab=2",
+              pageUrl: "https://livelabs.oracle.com/cdn/example/index.html?lab=2-data-catalog",
               sourceFileUrl: "https://oracle-livelabs.github.io/common/labs/data-catalog.md",
               sourceLine: 612,
               section: "Add a connection to the moviestream_sandbox bucket",
@@ -598,14 +607,16 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
     assert.match(html, /Task: Add a connection to the moviestream_sandbox bucket/);
     assert.match(html, /Step 2: In the Add Connection panel/);
     assert.match(html, /Markdown line 612/);
-    assert.match(html, /Open exact lab/);
+    assert.match(html, /Open workshop/);
+    assert.doesNotMatch(html, /href="[^"]*run-workshop/i);
+    assert.match(html, /href="https:\/\/livelabs\.oracle\.com\/cdn\/example\/index\.html\?lab=2-data-catalog"/i);
     assert.match(html, /Add to PAR Retest/);
     assert.equal((html.match(/data-review-add-label="Add to PAR Retest"/g) || []).length, 2);
     assert.match(html, /Where scanning stopped/);
     assert.match(html, /Getting Started/);
     assert.match(html, /listed in the workshop manifest/);
     assert.match(html, /correct its filename\/path in the workshop manifest/);
-    assert.match(html, /Open Getting Started/);
+    assert.match(html, /Open workshop/);
     assert.doesNotMatch(html, /Open Lab 3/);
     assert.match(html, /Open missing source/);
     assert.match(html, /Technical details for developers/);
@@ -623,7 +634,7 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
   }
 });
 
-test("keeps invalid workshop routes in regression and offers normal retest actions", () => {
+test("combines unavailable workshop routes and offers normal retest actions", () => {
   const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-report-exclusion-"));
   const outputDir = path.join(reportsRoot, "latest");
   fs.mkdirSync(outputDir, { recursive: true });
@@ -655,6 +666,10 @@ test("keeps invalid workshop routes in regression and offers normal retest actio
     const summaryHtml = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(summaryHtml, /Open workshop/);
     assert.match(summaryHtml, /Add to Retest List/);
+    assert.match(summaryHtml, /P1/);
+    assert.match(summaryHtml, /Workshop not available/);
+    assert.match(summaryHtml, /disable or unpublish its catalog card/);
+    assert.match(summaryHtml, /LiveLabs ID 4005/);
     assert.doesNotMatch(summaryHtml, /Fix List/);
     assert.equal(fs.existsSync(path.join(outputDir, "fix-list.html")), false);
     assert.doesNotMatch(summaryHtml, /Stop scanning this workshop/);

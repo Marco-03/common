@@ -168,8 +168,15 @@ function normalizeHref(baseUrl, href) {
   return url.toString();
 }
 
-function itemTypeFromHref(href) {
-  return href.includes("livestack-landing-page") ? "livestack" : "workshop";
+export function catalogItemTypeFromCard(rawItem) {
+  const href = String(rawItem?.href || "").toLowerCase();
+  const cardClass = String(rawItem?.cardClass || "").toLowerCase();
+  const typeHint = String(rawItem?.catalogTypeHint || "").toLowerCase();
+
+  if (href.includes("livestack-landing-page") || cardClass.includes("livestack-card")) return "livestack";
+  if (cardClass.includes("event-card") || /\bevents?\b/.test(typeHint)) return "event";
+  if (cardClass.includes("sprint-card") || /\bsprints?\b/.test(typeHint)) return "sprint";
+  return "workshop";
 }
 
 function slugify(value) {
@@ -184,9 +191,20 @@ function shortHash(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 10);
 }
 
-function explicitIdFromUrl(urlValue) {
+function explicitIdFromCardText(cardText, type) {
+  const typeLabel = type === "livestack" ? "(?:LiveStack|LiveLabs|LL)" : "(?:LiveLabs|LL|Workshop)";
+  const match = String(cardText || "").match(new RegExp(`\\b${typeLabel}\\s*ID\\s*[:#-]?\\s*(\\d+)\\b`, "i"));
+  return match?.[1];
+}
+
+export function explicitCatalogId(urlValue, type, cardText = "") {
   const url = new URL(urlValue);
-  const preferredParams = ["workshop", "workshop_id", "wid", "p400_id", "id", "p_id", "app_id", "lsid"];
+  const cardTextId = explicitIdFromCardText(cardText, type);
+  if (cardTextId) return cardTextId;
+  const preferredParams =
+    type === "livestack"
+      ? ["livestack", "livestack_id", "lsid", "p400_id", "p1_livestack_id", "id"]
+      : ["workshop", "workshop_id", "wid", "p400_id", "p1_workshop_id", "id", "p_id"];
 
   for (const paramName of preferredParams) {
     const value = url.searchParams.get(paramName);
@@ -195,15 +213,25 @@ function explicitIdFromUrl(urlValue) {
     }
   }
 
+  const semanticParam = Array.from(url.searchParams.entries()).find(([name, value]) => {
+    const normalized = name.toLowerCase();
+    const matchesType =
+      type === "livestack"
+        ? /(?:^|_)livestack(?:_id)?$/.test(normalized)
+        : /(?:^|_)(?:workshop|wid)(?:_id)?$/.test(normalized);
+    return matchesType && Boolean(value.trim());
+  });
+  if (semanticParam) return semanticParam[1].trim();
+
   return undefined;
 }
 
-function buildCatalogItem(baseUrl, rawItem) {
+export function buildCatalogItem(baseUrl, rawItem) {
   const normalizedHref = normalizeHref(baseUrl, rawItem.href);
   const normalizedUrl = new URL(normalizedHref);
-  const type = itemTypeFromHref(normalizedHref);
+  const type = catalogItemTypeFromCard({ ...rawItem, href: normalizedHref });
   const slug = slugify(rawItem.title);
-  const explicitId = explicitIdFromUrl(normalizedHref);
+  const explicitId = explicitCatalogId(normalizedHref, type, rawItem.cardText);
   const id = explicitId ?? `${type}-${slug || "item"}-${shortHash(normalizedHref)}`;
 
   return {
@@ -390,6 +418,7 @@ async function collectVisibleCards(page, catalogPage) {
           catalogPage: pageNumber,
           catalogPosition: index + 1,
           cardText,
+          cardClass: String(card.className || ""),
           labels: Array.from(new Set(labels)),
         };
       })
@@ -488,6 +517,7 @@ async function crawlCatalog(options) {
           seen,
           pageBudget,
           `Catalog facet "${planLabel}"`,
+          plan.facets,
         );
 
         for (const facet of [...plan.facets].reverse()) {
@@ -624,18 +654,22 @@ async function prepareFacetRefreshWait(page, facet) {
   );
 }
 
-async function collectCatalogResultPages(page, options, warnings, seen, pageBudget, contextName) {
+async function collectCatalogResultPages(page, options, warnings, seen, pageBudget, contextName, facets = []) {
   while (pageBudget.used < options.maxPages) {
     pageBudget.used += 1;
     const catalogPage = pageBudget.used;
     await waitForCardsWithRetries(page, options, warnings, `${contextName}, result page ${catalogPage}`);
     const rawItems = await collectVisibleCards(page, catalogPage);
 
+    const catalogTypeHint = facets
+      .filter((facet) => facet.group === CATALOG_PRIMARY_COVERAGE_GROUP)
+      .map((facet) => facet.label)
+      .join(" ");
     for (const rawItem of rawItems) {
-      const item = buildCatalogItem(options.baseUrl, rawItem);
-      const key = `${item.type}|${item.normalized_href}`;
+      const item = buildCatalogItem(options.baseUrl, { ...rawItem, catalogTypeHint });
+      const key = item.normalized_href;
 
-      if (!seen.has(key)) {
+      if (!seen.has(key) || (seen.get(key)?.type === "workshop" && item.type !== "workshop")) {
         seen.set(key, item);
       }
 
@@ -680,7 +714,7 @@ function buildIndex(options, items, warnings, crawlMetadata = {}) {
       accumulator[item.type] += 1;
       return accumulator;
     },
-    { workshop: 0, livestack: 0 },
+    { workshop: 0, livestack: 0, sprint: 0, event: 0 },
   );
 
   return {
@@ -713,7 +747,14 @@ function buildSummary(index, outputFile) {
   const pages = new Map();
 
   for (const item of index.items) {
-    const pageSummary = pages.get(item.catalog_page) ?? { page: item.catalog_page, workshop: 0, livestack: 0, total: 0 };
+    const pageSummary = pages.get(item.catalog_page) ?? {
+      page: item.catalog_page,
+      workshop: 0,
+      livestack: 0,
+      sprint: 0,
+      event: 0,
+      total: 0,
+    };
     pageSummary[item.type] += 1;
     pageSummary.total += 1;
     pages.set(item.catalog_page, pageSummary);
@@ -804,12 +845,16 @@ async function main() {
   writeIndex(options.outputFile, index);
   writeSummary(options.summaryOutputFile, buildSummary(index, options.outputFile));
 
-  console.log(`Indexed : ${index.item_count} cards (${index.counts.workshop} workshops, ${index.counts.livestack} LiveStacks)`);
+  console.log(
+    `Indexed : ${index.item_count} cards (${index.counts.workshop} workshops, ${index.counts.livestack} LiveStacks, ${index.counts.sprint} Sprints, ${index.counts.event} events)`,
+  );
   console.log(`Strategy: ${index.crawl.strategy}`);
   console.log(`Warnings: ${index.crawl.warnings.length}`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

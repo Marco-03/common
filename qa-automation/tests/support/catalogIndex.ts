@@ -6,7 +6,7 @@ import type { TestInfo } from "@playwright/test";
 import { PROJECT_ROOT, parseIntegerFlag } from "../../config/projectConfig.js";
 import { sanitizeSourceUrl } from "./parAudit.js";
 
-export type CatalogIndexItemType = "workshop" | "livestack";
+export type CatalogIndexItemType = "workshop" | "livestack" | "sprint" | "event";
 
 export interface CatalogIndexItem {
   id: string;
@@ -190,7 +190,8 @@ function sanitizeCatalogHref(value: string): string {
 }
 
 export function catalogItemTestTitle(item: CatalogIndexItem): string {
-  const prefix = item.type === "livestack" ? "LiveStack" : "workshop";
+  const prefix =
+    item.type === "livestack" ? "LiveStack" : item.type === "sprint" ? "Sprint" : item.type === "event" ? "Event" : "workshop";
   const itemKey = item.id || item.slug || `${item.catalog_page}-${item.catalog_position}`;
   const suffix = ` [${itemKey}]`;
   const title = `${prefix}: ${item.title}`;
@@ -243,8 +244,8 @@ function assertCatalogIndexItem(value: unknown, context: string): asserts value 
     }
   }
 
-  if (value.type !== "workshop" && value.type !== "livestack") {
-    throw new Error(`Catalog index item type must be workshop or livestack: ${context}`);
+  if (!["workshop", "livestack", "sprint", "event"].includes(String(value.type))) {
+    throw new Error(`Catalog index item type must be workshop, livestack, sprint, or event: ${context}`);
   }
 
   if (typeof value.catalog_page !== "number" || typeof value.catalog_position !== "number") {

@@ -267,7 +267,7 @@ function parOverviewHtml(audit) {
     "        </div></details>",
     "      </div>",
     '      <div class="result-tools">',
-    '        <label class="result-search"><span>Search results</span><input id="par-result-search" type="search" placeholder="Workshop, WMS ID, file, bucket, or issue" /></label>',
+    '        <label class="result-search"><span>Search results</span><input id="par-result-search" type="search" placeholder="Workshop, LiveLabs ID, file, bucket, or issue" /></label>',
     '        <div class="filter-buttons" role="group" aria-label="Filter PAR results">',
     filterButtonHtml("all", "All", links.length + scanErrors.length),
     filterButtonHtml("broken", "Broken", catalogProblems.length),
@@ -278,7 +278,7 @@ function parOverviewHtml(audit) {
     '        <label class="page-size"><span>Rows per page</span><select id="par-page-size"><option value="25">25</option><option value="50">50</option><option value="100">100</option></select></label>',
     "      </div>",
     '      <div class="result-table" role="table" aria-label="PAR audit results">',
-    '        <div class="result-table-head" role="row"><span>Status</span><span>Workshop or LiveStack</span><span>Finding</span><span>Exact location</span></div>',
+    '        <div class="result-table-head" role="row"><span>Status</span><span>Catalog item</span><span>Finding</span><span>Exact location</span></div>',
     '        <div id="par-result-rows">' + resultRows + "</div>",
     '        <div id="par-no-results" class="no-results" hidden>No results match this search and filter.</div>',
     "      </div>",
@@ -299,7 +299,7 @@ function parLinkResultRowHtml(link) {
   const catalogItem = link.catalog_item || {};
   const retestId = link.status === "working" ? "" : parRetestEntryId(link);
   const itemName = catalogItem.title || link.source_name || "Catalog item";
-  const itemMeta = [catalogItem.type, catalogItem.id ? "WMS " + catalogItem.id : catalogItem.slug]
+  const itemMeta = [catalogItem.type, catalogItem.id ? "LiveLabs ID " + catalogItem.id : catalogItem.slug]
     .filter(Boolean)
     .join(" / ");
   const source = preferredParSources(link.sources || [])[0];
@@ -369,7 +369,7 @@ export function parLinkGuidance(link) {
   const quotedObject = '"' + objectName + '"';
   const status = Number(link.http_status || 0);
   const catalogItem = link.catalog_item || {};
-  const itemReference = catalogItem.id ? "WMS " + catalogItem.id : catalogItem.title || "this catalog item";
+  const itemReference = catalogItem.id ? "LiveLabs ID " + catalogItem.id : catalogItem.title || "this catalog item";
 
   if (link.status === "working") {
     return {
@@ -689,7 +689,7 @@ function urlHasLabParameter(value) {
 
 function parSourceLocation(source, catalogItem = {}) {
   const parts = [];
-  if (catalogItem.id) parts.push("WMS " + catalogItem.id);
+  if (catalogItem.id) parts.push("LiveLabs ID " + catalogItem.id);
   const page = sourcePagePresentation(source, catalogItem);
   if (page.value) parts.push(page.label + ": " + page.value);
   if (source?.section && source.section !== page.value) parts.push("Task: " + source.section);
@@ -752,14 +752,14 @@ function sourceLocationsHtml(sources, catalogItem = {}, retestId = "") {
 function parScanResultRowHtml(error) {
   const item = error.catalog_item || {};
   const itemName = item.title || error.source_name || "Catalog item";
-  const itemMeta = [item.type || error.scope, item.id ? "WMS " + item.id : item.slug].filter(Boolean).join(" / ");
+  const itemMeta = [item.type || error.scope, item.id ? "LiveLabs ID " + item.id : item.slug].filter(Boolean).join(" / ");
   const technicalError = sanitizeSensitiveText(error.error || "The page could not be scanned.");
   const intendedLabel = error.label || error.page_type || "source page";
   const scanTarget = parScanFailureTarget(error, item, intendedLabel, technicalError);
   const scanState = parScanErrorPresentation(technicalError, intendedLabel, scanTarget);
   const pageUrl = scanTarget.url;
   const sourceFileUrl = safeReportUrl(error.source_file_url || error.sourceFileUrl || "");
-  const exactLocation = [item.id ? "WMS " + item.id : "", scanTarget.label]
+  const exactLocation = [item.id ? "LiveLabs ID " + item.id : "", scanTarget.label]
     .filter(Boolean)
     .join(" / ");
   const searchable = [
@@ -815,7 +815,7 @@ export function parScanErrorExplanation(error) {
 function parScanErrorPresentation(error, label = "source page", target = {}) {
   const value = sanitizeSensitiveText(error).trim();
   const targetLabel = target.label || label;
-  const itemReference = target.itemReference || "this WMS item";
+  const itemReference = target.itemReference || "this LiveLabs item";
   const intendedLabel = target.intendedLabel || label;
   const notChecked = intendedLabel === targetLabel
     ? `PAR links on "${targetLabel}" were not checked.`
@@ -931,7 +931,7 @@ function parScanFailureTarget(error, item, intendedLabel, technicalError) {
     label,
     actionLabel,
     intendedLabel,
-    itemReference: item.id ? "WMS " + item.id : item.title || "this WMS item",
+    itemReference: item.id ? "LiveLabs ID " + item.id : item.title || "this LiveLabs item",
   };
 }
 
@@ -1264,7 +1264,7 @@ export function parRetestListPageHtml(summary, context = {}) {
       <div class="retest-toolbar">
         <label class="retest-search">
           <span>Search selected links</span>
-          <input type="search" data-par-retest-search placeholder="Workshop, WMS ID, or file" />
+          <input type="search" data-par-retest-search placeholder="Workshop, LiveLabs ID, or file" />
         </label>
         <div class="retest-toolbar-actions">
           <button class="action-button primary" type="button" data-copy-item-ids>Copy item IDs</button>
@@ -1277,7 +1277,7 @@ export function parRetestListPageHtml(summary, context = {}) {
       <div class="retest-table" role="table" aria-label="PAR links selected for retest">
         <div class="retest-table-head" role="row">
           <span>Previous result</span>
-          <span>Workshop or LiveStack</span>
+          <span>Catalog item</span>
           <span>PAR file</span>
           <span>Where it was found</span>
           <span>Action</span>
@@ -1385,7 +1385,7 @@ export function parRetestListPageHtml(summary, context = {}) {
           return '<div class="retest-row" role="row">' +
             '<span><span class="badge ' + escapeText(entry.status) + '">' + statusLabel + '</span></span>' +
             '<span><strong>' + escapeText(entry.itemTitle) + '</strong><small>' +
-              escapeText([entry.itemType, entry.itemId ? "WMS " + entry.itemId : ""].filter(Boolean).join(" / ")) +
+              escapeText([entry.itemType, entry.itemId ? "LiveLabs ID " + entry.itemId : ""].filter(Boolean).join(" / ")) +
             '</small></span>' +
             '<span><strong>' + escapeText(entry.objectName) + '</strong><small>' + escapeText(entry.maskedUrl) + '</small></span>' +
             '<span><strong>' + escapeText(sourceDescription(entry) || "Source location not recorded") + '</strong>' +
@@ -1408,7 +1408,7 @@ export function parRetestListPageHtml(summary, context = {}) {
       document.querySelector("[data-copy-item-ids]")?.addEventListener("click", async () => {
         const ids = Array.from(new Set(selectedEntries().map((entry) => entry.itemId).filter(Boolean)));
         if (!ids.length) {
-          showMessage("No WMS IDs are available in this list.", true);
+          showMessage("No LiveLabs IDs are available in this list.", true);
           return;
         }
         const copied = await copyText(ids.join(","));
