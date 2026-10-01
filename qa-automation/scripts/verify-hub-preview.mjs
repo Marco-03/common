@@ -84,6 +84,7 @@ try {
   await second.setViewportSize({ width: 1440, height: 1000 });
   await second.getByRole("button", { name: "Run Retest List" }).click();
   await second.getByText("Preview retest queued.", { exact: false }).waitFor();
+  await second.waitForFunction(() => document.querySelector("[data-list-count]").textContent === "0");
   await second.goto(base + "/retest-runs.html");
   await second.getByText("no scan executed", { exact: false }).first().waitFor();
   await verifyNavigation(second);

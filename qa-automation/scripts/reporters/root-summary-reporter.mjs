@@ -3251,7 +3251,13 @@ function reviewListPageHtml(summary, context = {}) {
         if (!window.qaHub) throw new Error("The retest service is not available.");
         await window.qaHub.flush();
         const run = await window.qaHub.start(payload);
-        showMessage(run.preview ? "Preview retest queued. No live Jenkins job was started." : "Retest queued in Jenkins. It will wait for any active engine run to finish. Open Retest runs for progress.", false);
+        const current = readState();
+        const cleared = { ...current, [LIST_TYPE]: {} };
+        window.qaHub.sync(current, cleared);
+        await window.qaHub.flush();
+        localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify({ retest: {} }));
+        render();
+        showMessage(run.preview ? "Preview retest queued. The list is ready for the next selection." : "Retest queued in Jenkins. The list is ready for the next selection. Open Retest runs for progress.", false);
       } catch (error) { showMessage(error.message, true); }
       finally { button.disabled = false; }
     });
