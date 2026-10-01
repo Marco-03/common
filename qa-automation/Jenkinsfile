@@ -12,7 +12,7 @@ def runProfile() {
 }
 
 def reportChannel() {
-  return "regression"
+  return hasText(params.RETEST_SELECTION) ? "retest" : "regression"
 }
 
 def sourceCheckoutConfig() {
@@ -40,6 +40,8 @@ def qaRuntimeEnv() {
   def profile = runProfile()
   def workerCount = numericValue(params.TEST_WORKERS, "5")
   def envValues = [
+    "QA_RETEST_SELECTION=${params.RETEST_SELECTION ?: ''}",
+    "QA_RUN_SCOPE=${hasText(params.CATALOG_ITEM_IDS) ? 'Selected items' : hasText(params.CATALOG_MAX_ITEMS) && params.CATALOG_MAX_ITEMS != '0' ? 'Sample run' : profile == 'nightly-full' ? 'Full catalog requested' : 'Sample run'}",
     "CI=true",
     "QA_HEADED=false",
     "QA_TRACE=retain-on-failure",
@@ -48,7 +50,7 @@ def qaRuntimeEnv() {
     "QA_FULL_PAGE_SCREENSHOT=true",
     "QA_WORKERS=${workerCount}",
     "QA_RETRIES=${numericValue(params.TEST_RETRIES, '1')}",
-    "QA_CONTENT_LINK_LIMIT=${numericValue(params.CONTENT_LINK_LIMIT, '50')}",
+    "QA_CONTENT_LINK_LIMIT=${numericValue(params.CONTENT_LINK_LIMIT, '0')}",
   ]
 
   envValues.add("QA_PAR_RETRIES=" + numericValue(params.PAR_RETRIES, "2"))
@@ -119,7 +121,7 @@ def catalogIndexCommand() {
 
 def generatedRunCommand(runName) {
   return [
-    "node ./scripts/qa.mjs tests/platform/generated tests/platform/par/catalogParLinks.spec.ts",
+    hasText(params.RETEST_SELECTION) ? "node ./scripts/run-retest.mjs" : "node ./scripts/qa.mjs tests/platform/generated tests/platform/par/catalogParLinks.spec.ts",
     "--output artifacts/jenkins/${runName}/test-results",
     "--junit on",
     "--junit-file artifacts/jenkins/${runName}/junit.xml",
@@ -166,7 +168,7 @@ pipeline {
     timestamps()
     
     skipDefaultCheckout(true)
-    disableConcurrentBuilds(abortPrevious: true)
+    disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: "30", artifactNumToKeepStr: "30"))
   }
 
@@ -189,7 +191,8 @@ pipeline {
     string(name: "TEST_RETRIES", defaultValue: "1", description: "Playwright test retry count.")
     string(name: "CATALOG_RETRIES", defaultValue: "3", description: "Catalog crawler retry count.")
     string(name: "CATALOG_RETRY_DELAY_MS", defaultValue: "5000", description: "Delay between catalog crawler retries.")
-    string(name: "CONTENT_LINK_LIMIT", defaultValue: "50", description: "Visible content links checked per generated page. Use 0 to check all links.")
+    string(name: "CONTENT_LINK_LIMIT", defaultValue: "0", description: "Visible content links checked per generated page. Default 0 checks all links.")
+    string(name: "RETEST_SELECTION", defaultValue: "", description: "Managed QA Hub retest selection; leave empty for normal runs.")
     string(name: "PAR_DISCOVERY_CONCURRENCY", defaultValue: "3", description: "Workshop source files fetched concurrently inside each PAR catalog item.")
     string(name: "PAR_SOURCE_TIMEOUT_MS", defaultValue: "45000", description: "Timeout for each workshop manifest or Markdown source request.")
     string(name: "PAR_RETRIES", defaultValue: "2", description: "Retries for temporary PAR probe results.")

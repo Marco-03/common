@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v12";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v13";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -40,6 +40,8 @@ function sanitizeReportText(value) {
   return sanitizeSensitiveText(text);
 }
 const ISSUE_TYPE_DEFINITIONS = [
+  { code: "LINK_CHECK_INCOMPLETE", label: "Some links could not be verified", description: "Authentication, rate limiting, or a network problem blocked verification. These are not confirmed broken links.", priority: "P3" },
+  { code: "SOURCE_SCAN_INCOMPLETE", label: "Some instruction pages could not be checked", description: "The workshop opened, but one or more source pages or manifests could not be read.", priority: "P2" },
   {
     code: "WORKSHOP_NOT_AVAILABLE",
     label: "Workshop not available",
@@ -48,8 +50,8 @@ const ISSUE_TYPE_DEFINITIONS = [
   },
   {
     code: "AUTHENTICATION_REQUIRED",
-    label: "QA sign-in required",
-    description: "The QA browser reached Oracle Sign In before it could inspect the catalog item.",
+    label: "QA sign-in required - not tested",
+    description: "The QA browser reached Oracle Sign In before it could inspect the item. This is a QA session problem, not a workshop defect.",
     priority: "P3",
   },
   {
@@ -80,6 +82,24 @@ const ISSUE_TYPE_DEFINITIONS = [
     code: "CONTENT_TEXT_DEFECT",
     label: "Content text defect",
     description: "The page appears to contain placeholder text, template text, TODOs, or obvious text defects.",
+    priority: "P3",
+  },
+  {
+    code: "MARKDOWN_FORMATTING",
+    label: "Markdown formatting",
+    description: "Markdown markers, links, headings, or code fences are formatted incorrectly in the workshop source.",
+    priority: "P3",
+  },
+  {
+    code: "WRITING_GRAMMAR",
+    label: "Grammar or punctuation",
+    description: "The workshop source contains a likely repeated word or punctuation-spacing error.",
+    priority: "P3",
+  },
+  {
+    code: "POSSIBLE_TYPO",
+    label: "Possible typo",
+    description: "A prose word in the workshop source may be misspelled and has a suggested correction.",
     priority: "P3",
   },
   {
@@ -119,15 +139,27 @@ const ISSUE_TYPE_DEFINITIONS = [
     priority: "P2",
   },
   {
-    code: "TIMEOUT",
-    label: "Timeout",
-    description: "The page or expected state did not arrive before the configured test timeout.",
+    code: "PAGE_TIMED_OUT",
+    label: "Page timed out",
+    description: "The page did not finish loading or reach the expected state before the QA time limit.",
     priority: "P3",
   },
   {
-    code: "UNCLASSIFIED_FAILURE",
-    label: "Unclassified failure",
-    description: "The test failed, but the report does not yet have a more specific category for it.",
+    code: "UNEXPECTED_DESTINATION",
+    label: "Opened the wrong page",
+    description: "The action opened a page, but it was not the LiveLabs page the check expected.",
+    priority: "P2",
+  },
+  {
+    code: "QA_SETUP_FAILED",
+    label: "QA setup failed",
+    description: "The browser, saved sign-in state, or test fixture failed before the LiveLabs content could be checked.",
+    priority: "P3",
+  },
+  {
+    code: "QA_CHECK_FAILED",
+    label: "QA check did not complete",
+    description: "The automated check stopped without enough evidence to report a workshop defect. Rerun it before changing content.",
     priority: "P3",
   },
 ];
@@ -181,6 +213,7 @@ export default class RootSummaryReporter {
     });
 
     this.results.push({
+      testId: test.id,
       title: test.title,
       titlePath,
       file,
@@ -191,6 +224,7 @@ export default class RootSummaryReporter {
       durationMs: result.duration,
       retry: result.retry,
       projectName: test.parent.project()?.name || "",
+      linkCoverage: annotations["link-coverage"] || "",
       catalogItem,
       authorEmails,
       authorNames,
@@ -240,6 +274,12 @@ export default class RootSummaryReporter {
   }
 
   summary(result, endedAt, runId) {
+    const finalResults = Array.from(this.results.reduce((latest, test) => {
+      const key = test.testId || JSON.stringify([test.projectName, test.file, test.line, test.titlePath, test.title]);
+      const previous = latest.get(key);
+      if (!previous || (test.retry || 0) >= (previous.retry || 0)) latest.set(key, test);
+      return latest;
+    }, new Map()).values());
     const counts = {
       passed: 0,
       failed: 0,
@@ -248,14 +288,14 @@ export default class RootSummaryReporter {
       interrupted: 0,
       flaky: 0,
       unexpected: 0,
-      total: this.results.length,
+      total: finalResults.length,
     };
     const sections = new Map();
     const failureCategories = new Map();
     const failures = [];
     const catalogItems = new Map();
 
-    for (const test of this.results) {
+    for (const test of finalResults) {
       const unexpected = test.status !== test.expectedStatus && test.status !== "skipped";
       const testIssues = unexpected ? issuesForTest(test) : [];
 
@@ -333,6 +373,8 @@ export default class RootSummaryReporter {
           status: test.status,
           expectedStatus: test.expectedStatus,
           durationMs: test.durationMs,
+          retry: test.retry,
+          linkCoverage: test.linkCoverage,
           finalUrl: test.finalUrl,
           finalTitle: test.finalTitle,
           classification: test.classification,
@@ -346,8 +388,9 @@ export default class RootSummaryReporter {
     return {
       runId,
       attemptId: String(process.env.QA_RUN_ATTEMPT_ID || ""),
+      scope: { label: process.env.QA_RETEST_SELECTION ? "Selected-item retest" : process.env.QA_RUN_SCOPE || "Scope not recorded" },
       reportChannel: reportChannelFromRoot(this.reportsRoot),
-      runType: this.landingPage === "par-links.html" ? "par" : "regression",
+      runType: process.env.QA_RETEST_SELECTION ? "retest" : this.landingPage === "par-links.html" ? "par" : "regression",
       status: result.status,
       completion: {
         state:
@@ -388,7 +431,7 @@ export default class RootSummaryReporter {
             itemPriorityRank(left) - itemPriorityRank(right) ||
             String(left.catalogItem.title || "").localeCompare(String(right.catalogItem.title || "")),
         ),
-      parAudit: buildParAuditSummary(this.results),
+      parAudit: buildParAuditSummary(finalResults),
       sections: Array.from(sections.values()).sort((left, right) => left.name.localeCompare(right.name)),
     };
   }
@@ -396,7 +439,7 @@ export default class RootSummaryReporter {
 
 function reportChannelFromRoot(reportsRoot) {
   const channel = path.basename(reportsRoot).toLowerCase();
-  return channel === "par" || channel === "regression" ? channel : "local";
+  return ["par", "regression", "retest"].includes(channel) ? channel : "local";
 }
 
 function catalogItemKey(item) {
@@ -414,6 +457,18 @@ function catalogEntryStatus(item) {
 
   return "passed";
 }
+
+function operatorState(item) {
+  const codes = (item.issues || []).map((issue) => canonicalIssueCode(issue.code));
+  const incomplete = new Set(["LINK_CHECK_INCOMPLETE", "SOURCE_SCAN_INCOMPLETE", "PAR_SCAN_INCOMPLETE", "PAR_LINK_UNVERIFIED"]);
+  const blocked = new Set(["AUTHENTICATION_REQUIRED", "QA_SETUP_FAILED", "QA_CHECK_FAILED", "PAGE_TIMED_OUT"]);
+  if (codes.some((code) => !incomplete.has(code) && !blocked.has(code))) return "failed";
+  if (codes.some((code) => incomplete.has(code))) return "partial";
+  if (codes.length || item.status === "skipped") return "unchecked";
+  return item.status === "failed" ? "unchecked" : "passed";
+}
+
+const OPERATOR_STATES = { failed: "Issues found", partial: "Partially checked", unchecked: "Could not check", passed: "Passed" };
 
 function catalogStatusRank(status) {
   if (status === "failed") return 0;
@@ -465,7 +520,7 @@ function readQaIssues(attachments) {
 }
 
 function normalizeQaIssue(issue) {
-  const rawCode = typeof issue.code === "string" && issue.code.trim() ? issue.code.trim() : "UNCLASSIFIED_FAILURE";
+  const rawCode = typeof issue.code === "string" && issue.code.trim() ? issue.code.trim() : "QA_CHECK_FAILED";
   const code = canonicalIssueCode(rawCode);
   const definition = issueTypeDefinition(code);
   const label =
@@ -578,7 +633,7 @@ function matchLineValue(value, label) {
   return match?.[1]?.trim() || "";
 }
 
-function classifyResult({ status, expectedStatus, errors, finalUrl, titlePath, file, issues = [] }) {
+export function classifyResult({ status, expectedStatus, errors, finalUrl, titlePath, file, issues = [] }) {
   if (status === "skipped") {
     return { code: "SKIPPED", label: "Skipped", severity: "info" };
   }
@@ -587,19 +642,20 @@ function classifyResult({ status, expectedStatus, errors, finalUrl, titlePath, f
     return { code: "PASSED", label: "Passed", severity: "pass" };
   }
 
-  if (issues.length > 0) {
-    const primaryIssue = issues.find((issue) => issue.severity === "blocker") || issues[0];
+  const primaryIssue = issues.find((issue) => issue.severity === "blocker") || issues[0];
+  const primaryCode = canonicalIssueCode(primaryIssue?.code || "");
+  if (primaryIssue && primaryCode !== "QA_CHECK_FAILED") {
     return {
-      code: primaryIssue.code,
-      label: primaryIssue.label,
+      code: primaryCode,
+      label: classificationLabel(primaryCode),
       severity: primaryIssue.severity === "blocker" ? "fail" : "warn",
     };
   }
 
   const text = `${errors.join("\n")}\n${finalUrl}\n${titlePath.join(" ")}\n${file}`;
 
-  if (/signon\.oracle\.com\/signin|\.identity\.oraclecloud\.com\/|Sign in to Oracle/i.test(text)) {
-    return { code: "AUTHENTICATION_REQUIRED", label: "QA sign-in required", severity: "warn" };
+  if (/signon\.oracle\.com\/signin|\.identity\.oraclecloud\.com\/|Sign in to Oracle|Welcome to My Login Profile|my_profile_security/i.test(text)) {
+    return { code: "AUTHENTICATION_REQUIRED", label: "QA sign-in required - not tested", severity: "warn" };
   }
   if (/p1_invalid_workshop_id/i.test(text)) {
     return { code: "WORKSHOP_NOT_AVAILABLE", label: "Workshop not available", severity: "fail" };
@@ -622,6 +678,15 @@ function classifyResult({ status, expectedStatus, errors, finalUrl, titlePath, f
   if (/placeholder text|misspellings|TODO|TBD|FIXME|template token/i.test(text)) {
     return { code: "CONTENT_TEXT_DEFECT", label: "Content text defect", severity: "fail" };
   }
+  if (/MARKDOWN_FORMATTING|Markdown formatting/i.test(text)) {
+    return { code: "MARKDOWN_FORMATTING", label: "Markdown formatting", severity: "warn" };
+  }
+  if (/WRITING_GRAMMAR|Grammar or punctuation/i.test(text)) {
+    return { code: "WRITING_GRAMMAR", label: "Grammar or punctuation", severity: "warn" };
+  }
+  if (/POSSIBLE_TYPO|Possible typo/i.test(text)) {
+    return { code: "POSSIBLE_TYPO", label: "Possible typo", severity: "warn" };
+  }
   if (/should stay relevant/i.test(text)) {
     return { code: "CONTENT_RELEVANCE", label: "Wrong or unrelated instructions content", severity: "fail" };
   }
@@ -631,11 +696,25 @@ function classifyResult({ status, expectedStatus, errors, finalUrl, titlePath, f
   if (/asset action|download|popup/i.test(text)) {
     return { code: "ASSET_ACTION_FAILED", label: "Asset action failed", severity: "fail" };
   }
+  if (/Target page, context or browser has been closed|browserType\.launch|Executable doesn['’]?t exist|storage state|fixture setup|beforeAll hook/i.test(text)) {
+    return { code: "QA_SETUP_FAILED", label: "QA setup failed", severity: "warn" };
+  }
   if (/Timeout|timed out/i.test(text)) {
-    return { code: "TIMEOUT", label: "Timeout", severity: "fail" };
+    return { code: "PAGE_TIMED_OUT", label: "Page timed out", severity: "warn" };
+  }
+  if (/unexpected (?:url|destination|page)|wrong (?:url|destination|page)|did not reach the expected/i.test(text)) {
+    return { code: "UNEXPECTED_DESTINATION", label: "Opened the wrong page", severity: "fail" };
   }
 
-  return { code: "UNCLASSIFIED_FAILURE", label: "Unclassified failure", severity: "fail" };
+  if (primaryIssue) {
+    return {
+      code: primaryCode || "QA_CHECK_FAILED",
+      label: classificationLabel(primaryCode || "QA_CHECK_FAILED"),
+      severity: primaryIssue.severity === "blocker" ? "fail" : "warn",
+    };
+  }
+
+  return { code: "QA_CHECK_FAILED", label: "QA check did not complete", severity: "warn" };
 }
 
 function classificationLabel(code) {
@@ -644,9 +723,10 @@ function classificationLabel(code) {
 }
 
 function canonicalIssueCode(code) {
-  return code === "ROUTING_INVALID_WORKSHOP_ID" || code === "ROUTING_FAILED"
-    ? "WORKSHOP_NOT_AVAILABLE"
-    : code;
+  if (code === "ROUTING_INVALID_WORKSHOP_ID" || code === "ROUTING_FAILED") return "WORKSHOP_NOT_AVAILABLE";
+  if (code === "UNCLASSIFIED_FAILURE") return "QA_CHECK_FAILED";
+  if (code === "TIMEOUT") return "PAGE_TIMED_OUT";
+  return code;
 }
 
 function buildBugSummary({
@@ -689,7 +769,7 @@ function buildBugSummary({
 }
 
 export function writeSummaryFiles(outputDir, summary, reportsRoot) {
-  const historyHref = relativeReportHref(outputDir, path.join(reportsRoot, "index.html"));
+  const historyHref = summary.previewMode ? "/regression/" : relativeReportHref(outputDir, path.join(reportsRoot, "index.html"));
   const pageContext = {
     outputDir,
     historyHref,
@@ -699,8 +779,11 @@ export function writeSummaryFiles(outputDir, summary, reportsRoot) {
   fs.writeFileSync(path.join(outputDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf-8");
   fs.writeFileSync(path.join(outputDir, "results.csv"), resultsCsv(summary), "utf-8");
   fs.writeFileSync(path.join(outputDir, "summary.md"), markdownSummary(summary), "utf-8");
-  fs.writeFileSync(path.join(outputDir, "summary.html"), htmlSummary(summary, pageContext), "utf-8");
-  fs.writeFileSync(path.join(outputDir, "retest-list.html"), reviewListPageHtml(summary, pageContext), "utf-8");
+  const withClient = (html) => html.replace("</head>", '<link rel="stylesheet" href="hub-ui.css"></head>').replace("</body>", '<script src="hub-client.js"></script></body>');
+  fs.copyFileSync(new URL("../hub-ui.css", import.meta.url), path.join(outputDir, "hub-ui.css"));
+  fs.copyFileSync(new URL("../hub-client.js", import.meta.url), path.join(outputDir, "hub-client.js"));
+  fs.writeFileSync(path.join(outputDir, "summary.html"), withClient(htmlSummary(summary, pageContext)), "utf-8");
+  fs.writeFileSync(path.join(outputDir, "retest-list.html"), withClient(reviewListPageHtml(summary, pageContext).replace('<body>', '<body class="retest-page">')), "utf-8");
   fs.rmSync(path.join(outputDir, "fix-list.html"), { force: true });
   writeParAuditDataFiles(outputDir, summary.parAudit);
 }
@@ -709,6 +792,7 @@ function sectionFromFile(file) {
   if (file.includes("/generated/")) {
     if (file.includes("parLinks")) return "Generated PAR Links";
     if (file.includes("catalogIndex")) return "Generated Catalog Index";
+    if (file.includes("sourceQuality")) return "Workshop Source Quality";
     if (file.includes("livestackResources")) return "Generated LiveStack Resources";
     if (file.includes("livestackOverview")) return "Generated LiveStack Overview";
     if (file.includes("sprintEventPages")) return "Generated Sprint and Event Page";
@@ -822,11 +906,11 @@ export function resultsCsv(summary) {
           "",
           test.title || "",
           unexpected ? "failed" : test.status || "",
-          unexpected ? issuePriority({ code: test.classification?.code || "UNCLASSIFIED_FAILURE" }) : "",
+          unexpected ? issuePriority({ code: test.classification?.code || "QA_CHECK_FAILED" }) : "",
           unexpected ? 1 : 0,
-          unexpected ? test.classification?.code || "UNCLASSIFIED_FAILURE" : "",
+          unexpected ? canonicalIssueCode(test.classification?.code || "QA_CHECK_FAILED") : "",
           unexpected ? test.classification?.label || "Test failure" : "",
-          unexpected ? issueSeverityFromCode(test.classification?.code || "UNCLASSIFIED_FAILURE") : "",
+          unexpected ? issueSeverityFromCode(test.classification?.code || "QA_CHECK_FAILED") : "",
           unexpected ? sanitizeReportText(test.errors?.[0] || "") : "",
           "",
           sanitizeReportText(test.finalUrl || ""),
@@ -1304,8 +1388,8 @@ function htmlSummary(summary, context = {}) {
     .result-summary {
       align-items: center;
       display: grid;
-      gap: 14px;
-      grid-template-columns: 110px minmax(250px, 1.4fr) minmax(210px, 1fr) minmax(230px, 1.15fr);
+      gap: 18px;
+      grid-template-columns: 150px minmax(250px, 1.4fr) minmax(180px, 1fr) minmax(210px, 1.15fr);
       min-width: 930px;
     }
     .result-table-head {
@@ -1313,7 +1397,7 @@ function htmlSummary(summary, context = {}) {
       color: var(--muted);
       font-size: 12px;
       font-weight: 800;
-      padding: 10px 16px;
+      padding: 10px 38px 10px 16px;
       text-transform: uppercase;
     }
     .result-row {
@@ -1333,6 +1417,8 @@ function htmlSummary(summary, context = {}) {
       padding: 13px 38px 13px 16px;
       position: relative;
     }
+    .result-summary > span:first-child { min-width: 0; }
+    .result-summary > span:first-child .pill { max-width: 100%; white-space: normal; }
     .result-summary::after {
       color: var(--muted);
       content: "+";
@@ -2183,6 +2269,13 @@ function htmlSummary(summary, context = {}) {
       text-align: center;
     }
     @media (max-width: 720px) {
+      .result-table { overflow: visible; }
+      .result-table-head { display: none; }
+      .result-summary { min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+      .result-summary::after { top: 12px; }
+      .result-summary > * { min-width: 0; overflow-wrap: anywhere; }
+      .affected-item-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+      .operator-issue, .affected-items, .issue-location { min-width: 0; }
       header { padding: 22px 18px; }
       main { padding: 18px; }
       .section-heading,
@@ -2245,15 +2338,15 @@ function htmlSummary(summary, context = {}) {
   <main>
     ${summary.previewMode ? `<div class="preview-notice"><strong>Design preview only</strong><span>These rows demonstrate the report layout. They are not findings from a LiveLabs scan.</span></div>` : ""}
     <div class="totals">
-      ${metric("Items tested", catalogItems.length || summary.counts.total)}
+      ${metric("Catalog items", catalogItems.length || summary.counts.total)}
       ${metric("Passed", catalogItems.length > 0 ? itemCounts.passed : summary.counts.passed, "pass")}
       ${metric(
-        "Need review",
-        catalogItems.length > 0 ? itemCounts.failed : summary.counts.unexpected,
+        "Items with issues",
+        catalogItems.length > 0 ? catalogItems.filter((item) => operatorState(item) === "failed").length : summary.counts.unexpected,
         summary.counts.unexpected > 0 ? "warn" : "pass",
       )}
-      ${metric("Skipped", catalogItems.length > 0 ? itemCounts.skipped : summary.counts.skipped)}
-      ${metric("Issues found", failureCategories.reduce((total, category) => total + category.count, 0), "warn")}
+      ${metric("Partially checked", catalogItems.filter((item) => operatorState(item) === "partial").length, "warn")}
+      ${metric("Could not check", catalogItems.filter((item) => operatorState(item) === "unchecked").length, "warn")}
     </div>
     <p class="review-message" data-review-message></p>
     ${testedItems}
@@ -2446,6 +2539,7 @@ function htmlSummary(summary, context = {}) {
       }
     }
     function writeReviewState(state) {
+      window.qaHub?.sync(readReviewState(), state);
       localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify({
         retest: state.retest || {},
       }));
@@ -2461,7 +2555,7 @@ function htmlSummary(summary, context = {}) {
         button.classList.toggle("selected", selected);
         button.setAttribute("aria-pressed", selected ? "true" : "false");
         const addLabel = button.getAttribute("data-review-add-label") || "Add to Retest List";
-        const selectedLabel = button.getAttribute("data-review-selected-label") || "In Retest List";
+        const selectedLabel = button.getAttribute("data-review-selected-label") || "Remove from Retest List";
         button.innerText = selected ? selectedLabel : addLabel;
       }
     }
@@ -2486,7 +2580,9 @@ function htmlSummary(summary, context = {}) {
           writeReviewState(state);
           showReviewMessage(entry.testName + " was added to the Retest List.");
         } else {
-          showReviewMessage(entry.testName + " is already in the Retest List.");
+          delete state.retest[id];
+          writeReviewState(state);
+          showReviewMessage(entry.testName + " was removed from the Retest List.");
         }
         updateReviewCounts();
       });
@@ -2549,6 +2645,7 @@ function reviewEntryForItem(item, runId) {
     rerunCommand: reviewActionCommand("retest"),
     itemType,
     itemId,
+    itemIds: item.catalogItem.ids || [itemId],
     catalogUrl,
     finalUrl: firstTest.finalUrl || "",
     finalTitle: firstTest.finalTitle || "",
@@ -2593,7 +2690,7 @@ function reviewNavigationHtml(historyHref = "") {
 }
 
 function reportCatalogItems(items) {
-  return items
+  const normalized = items
     .map((item) => {
       const issues = (item.issues || [])
         .map((issue) => {
@@ -2601,7 +2698,7 @@ function reportCatalogItems(items) {
           return code === issue.code ? issue : { ...issue, code, label: classificationLabel(code) };
         })
         .filter((issue) => issue.code !== "CONTENT_RELEVANCE");
-      const tests = (item.tests || []).map((test) => {
+      let tests = (item.tests || []).map((test) => {
         const code = canonicalIssueCode(test.classification?.code || "");
         if (code !== "CONTENT_RELEVANCE") {
           return code === test.classification?.code
@@ -2610,21 +2707,80 @@ function reportCatalogItems(items) {
         }
         return { ...test, status: test.expectedStatus || "passed", issues: [] };
       });
+      const authenticationOnly = issues.length > 0 && issues.every((issue) => issue.code === "AUTHENTICATION_REQUIRED");
+      if (authenticationOnly) {
+        tests = tests.map((test) =>
+          canonicalIssueCode(test.classification?.code || "") === "AUTHENTICATION_REQUIRED"
+            ? { ...test, status: "skipped", expectedStatus: "skipped" }
+            : test,
+        );
+      }
       const stillNeedsReview = issues.length > 0 || tests.some((test) => test.status !== test.expectedStatus && test.status !== "skipped");
       return {
         ...item,
         issues,
         tests,
         issueCount: issues.length,
-        status: item.status === "failed" && !stillNeedsReview ? "passed" : item.status,
+        status: authenticationOnly ? "skipped" : item.status === "failed" && !stillNeedsReview ? "passed" : item.status,
       };
-    })
+    });
+  return mergeDuplicateReportItems(normalized)
     .sort(
       (left, right) =>
         catalogStatusRank(left.status) - catalogStatusRank(right.status) ||
         itemPriorityRank(left) - itemPriorityRank(right) ||
         catalogItemDisplayTitle(left.catalogItem).localeCompare(catalogItemDisplayTitle(right.catalogItem)),
     );
+}
+
+function mergeDuplicateReportItems(items) {
+  const merged = new Map();
+  for (const item of items) {
+    const titleKey = catalogItemDisplayTitle(item.catalogItem).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const key = titleKey || item.key;
+    const existing = merged.get(key);
+    if (!existing) {
+      const mergedIssues = mergeDuplicateIssues(item.issues || []);
+      merged.set(key, {
+        ...item,
+        catalogItem: { ...item.catalogItem, ids: Array.from(new Set([...(item.catalogItem?.ids || []), item.catalogItem?.id].filter(Boolean).map(String))) },
+        keys: [item.key], sections: [...(item.sections || [])], tests: [...(item.tests || [])], issues: mergedIssues, issueCount: mergedIssues.length,
+        authorEmails: [...(item.authorEmails || [])], authorNames: [...(item.authorNames || [])],
+      });
+      continue;
+    }
+    const allIds = [...(existing.catalogItem.ids || []), ...(item.catalogItem?.ids || []), item.catalogItem?.id].filter(Boolean).map(String);
+    if ((existing.catalogItem?.type || "workshop") === "workshop" && (item.catalogItem?.type || "workshop") !== "workshop") {
+      existing.catalogItem = { ...existing.catalogItem, ...item.catalogItem };
+    }
+    existing.catalogItem.ids = Array.from(new Set(allIds));
+    existing.keys = Array.from(new Set([...(existing.keys || [existing.key]), item.key]));
+    existing.sections = Array.from(new Set([...(existing.sections || []), ...(item.sections || [])])).sort();
+    existing.tests = uniqueObjects([...(existing.tests || []), ...(item.tests || [])]);
+    existing.issues = mergeDuplicateIssues([...(existing.issues || []), ...(item.issues || [])]);
+    existing.authorEmails = Array.from(new Set([...(existing.authorEmails || []), ...(item.authorEmails || [])])).sort();
+    existing.authorNames = Array.from(new Set([...(existing.authorNames || []), ...(item.authorNames || [])])).sort();
+    for (const field of ["total", "passed", "failed", "skipped", "unexpected"]) existing.counts[field] = Number(existing.counts?.[field] || 0) + Number(item.counts?.[field] || 0);
+    existing.status = existing.status === "failed" || item.status === "failed" ? "failed" : existing.status === "skipped" && item.status === "skipped" ? "skipped" : "passed";
+    existing.issueCount = existing.issues.length;
+  }
+  return Array.from(merged.values());
+}
+
+function mergeDuplicateIssues(issues) {
+  const merged = new Map();
+  for (const issue of issues) {
+    const existing = merged.get(issue.code);
+    if (!existing) { merged.set(issue.code, { ...issue }); continue; }
+    const details = uniqueObjects([...operatorIssueDetails(existing), ...operatorIssueDetails(issue)]);
+    if (details.length) existing.details = details;
+  }
+  return Array.from(merged.values());
+}
+
+function uniqueObjects(values) {
+  const seen = new Set();
+  return values.filter((value) => { const key = JSON.stringify(value); if (seen.has(key)) return false; seen.add(key); return true; });
 }
 
 function canonicalFailureCategories(categories) {
@@ -2883,8 +3039,9 @@ function reviewListPageHtml(summary, context = {}) {
         <span>${escapeHtml(summary.startedAt)}</span>
       </div>
       <div class="nav-actions">
+        <a class="link-button" href="/">QA Hub home</a>
         ${context.historyHref ? `<a class="link-button" href="${escapeHtml(context.historyHref)}">All runs</a>` : ""}
-        <a class="link-button" href="summary.html">Back to execution report</a>
+        <a class="link-button" href="summary.html">Report</a>
       </div>
     </div>
   </header>
@@ -2900,17 +3057,18 @@ function reviewListPageHtml(summary, context = {}) {
       <div class="toolbar">
         <p class="message" data-message></p>
         <div class="toolbar-actions">
-          <button class="button primary" type="button" data-run-list>${escapeHtml(actionLabel)}</button>
-          <button class="button" type="button" data-copy-payload>Copy Payload</button>
+          <button class="button primary" type="button" data-run-list aria-describedby="retest-queue-note">${escapeHtml(actionLabel)}</button>
+          <button class="button" type="button" data-copy-payload hidden>Copy Payload</button>
           <button class="button danger" type="button" data-clear-list>Clear List</button>
         </div>
       </div>
+      <p class="retest-queue-note" id="retest-queue-note"><strong>Full run in progress? Wait until it finishes before starting a retest.</strong> If you submit now, Jenkins queues the selected workshops behind the active run. Full runs and retests use the same engine, one run at a time; the active run is not stopped.</p>
       <div class="list" data-list></div>
     </section>
     <section class="section">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Script handoff</p>
+          <p class="eyebrow" data-legacy-handoff>Script handoff</p>
           <h2>Run this list through the QA scripts</h2>
         </div>
       </div>
@@ -2949,6 +3107,7 @@ function reviewListPageHtml(summary, context = {}) {
       }
     }
     function writeState(state) {
+      window.qaHub?.sync(readState(), state);
       localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify({
         retest: state.retest || {},
       }));
@@ -2975,6 +3134,8 @@ function reviewListPageHtml(summary, context = {}) {
         failureReason: entry.failureReason || "",
         stackTrace: entry.stackTrace || "",
         executionId: entry.executionId || "",
+        itemId: entry.itemId || "",
+        itemType: entry.itemType || "",
         rerunCommand: entry.rerunCommand || ACTION_COMMAND,
         catalogUrl: entry.catalogUrl || "",
         finalUrl: entry.finalUrl || "",
@@ -3078,16 +3239,21 @@ function reviewListPageHtml(summary, context = {}) {
       showMessage(LIST_TITLE + " cleared.", false);
       render();
     });
-    document.querySelector("[data-run-list]").addEventListener("click", () => {
+    document.querySelector("[data-run-list]").addEventListener("click", async () => {
       const payload = buildPayload();
       if (payload.tests.length === 0) {
         showMessage("Add at least one test before running this list.", true);
         return;
       }
-      downloadPayload(payload);
-      payloadPreview.hidden = false;
-      payloadPreview.innerText = JSON.stringify(payload, null, 2);
-      showMessage("Payload downloaded. Run the command below with the downloaded payload path.", false);
+      const button = document.querySelector("[data-run-list]");
+      button.disabled = true;
+      try {
+        if (!window.qaHub) throw new Error("The retest service is not available.");
+        await window.qaHub.flush();
+        const run = await window.qaHub.start(payload);
+        showMessage(run.preview ? "Preview retest queued. No live Jenkins job was started." : "Retest queued in Jenkins. It will wait for any active engine run to finish. Open Retest runs for progress.", false);
+      } catch (error) { showMessage(error.message, true); }
+      finally { button.disabled = false; }
     });
     document.querySelector("[data-copy-payload]").addEventListener("click", async () => {
       const payload = buildPayload();
@@ -3475,9 +3641,7 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
           .join("\n")}
         </optgroup>
         <optgroup label="Status">
-        ${testedItemFilterOptionHtml("failed", "Need review", statusCounts.failed)}
-        ${testedItemFilterOptionHtml("passed", "Passed", statusCounts.passed)}
-        ${statusCounts.skipped > 0 ? testedItemFilterOptionHtml("skipped", "Skipped", statusCounts.skipped) : ""}
+        ${Object.entries(OPERATOR_STATES).map(([state, label]) => testedItemFilterOptionHtml(state, label, items.filter((item) => operatorState(item) === state).length)).join("")}
         </optgroup>
         <optgroup label="Catalog type">
         ${types
@@ -3553,9 +3717,11 @@ function testedItemRowHtml(item, runId, failures, context) {
           : `${issueCount} separate issues`
       : item.status === "passed"
         ? "No issues found"
-        : "Skipped";
+        : issues.length === 1
+          ? issueDisplayLabel(issues[0])
+          : "Not tested";
   const statusTone = item.status === "failed" ? "fail" : item.status === "skipped" ? "warn" : "pass";
-  const statusLabel = item.status === "failed" ? "Need review" : item.status === "passed" ? "Passed" : "Skipped";
+  const statusLabel = OPERATOR_STATES[operatorState(item)];
   const searchText = [
     catalogItemDisplayTitle(item.catalogItem),
     itemId,
@@ -3572,7 +3738,7 @@ function testedItemRowHtml(item, runId, failures, context) {
   return `<details class="result-row ${escapeAttribute(item.status)}"
     id="${escapeAttribute(itemDetailId(item))}"
     data-item-row
-    data-status="${escapeAttribute(item.status)}"
+    data-status="${escapeAttribute(operatorState(item))}"
     data-type="${escapeAttribute(itemType)}"
     data-priority="${escapeAttribute(priority)}"
     data-issues="${escapeAttribute(issueCodes.join(" "))}"
@@ -3586,6 +3752,9 @@ function testedItemRowHtml(item, runId, failures, context) {
       <span class="result-checks">
         <strong>${escapeHtml(String(checkCount))} check${checkCount === 1 ? "" : "s"}</strong>
         <small>${escapeHtml(sections.join(", ") || "No section metadata")}</small>
+        ${tests.filter((test) => test.linkCoverage).map((test) => {
+          try { const c = JSON.parse(test.linkCoverage); return `<small>Visible links attempted: ${Number(c.checked)} / ${Number(c.found)}${c.unverified ? `; ${Number(c.unverified)} unverified` : ""}</small>`; } catch { return ""; }
+        }).join("")}
       </span>
       <span class="result-finding">
         <strong>${priority ? `<span class="priority-badge ${escapeAttribute(priority.toLowerCase())}">${escapeHtml(priority)}</span> ` : ""}${escapeHtml(issueLabel)}</strong>
@@ -3598,15 +3767,18 @@ function testedItemRowHtml(item, runId, failures, context) {
 
 function itemDetailHtml(item, failures, context) {
   const itemFailures = (failures || []).filter(
-    (failure) => failure.catalogItem && catalogItemKey(failure.catalogItem) === item.key,
+    (failure) => failure.catalogItem && (item.keys || [item.key]).includes(catalogItemKey(failure.catalogItem)),
   );
   const issues = item.issues || [];
   const tests = item.tests || [];
   const url = item.catalogItem.normalized_href || item.catalogItem.absolute_url || item.catalogItem.href || "";
   const reviewId = reviewEntryId(item, context.summaryRunId || "");
   const hasParIssues = hasParAuditIssues(issues);
+  const authenticationOnly = issues.length > 0 && issues.every((issue) => issue.code === "AUTHENTICATION_REQUIRED");
   const issueHeading =
-    issues.length === 0
+    operatorState(item) === "partial" ? "Coverage incomplete" : operatorState(item) === "unchecked"
+      ? "Could not check"
+      : issues.length === 0
       ? "No issues found"
       : `${issues.length} issue${issues.length === 1 ? "" : "s"} found`;
 
@@ -3617,20 +3789,25 @@ function itemDetailHtml(item, failures, context) {
         <p>${escapeHtml(
           issues.length === 0
             ? "Every completed check passed for this item."
+            : authenticationOnly
+              ? "The QA browser needs a fresh Oracle sign-in before this item can be checked. No workshop change is requested."
+            : ["partial", "unchecked"].includes(operatorState(item))
+              ? "Some checks did not complete. Review the listed page or access problem before changing workshop content."
             : "Review each problem below, make the change, then add the item to the retest list.",
         )}</p>
       </div>
       <div class="result-actions">
         ${url ? `<a class="link-button" href="${escapeAttribute(stableWorkshopSourceUrl(url, url))}" target="_blank" rel="noreferrer">${escapeHtml(catalogItemOpenLabel(item.catalogItem?.type))}</a>` : ""}
-        ${issues.length > 0 && !hasParIssues ? `<button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}">Add to Retest List</button>` : ""}
+        ${issues.length > 0 && !hasParIssues && !authenticationOnly ? `<button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}">Add to Retest List</button>` : ""}
       </div>
     </div>
-    ${issues.length > 0 ? workshopAuthorContactsHtml(item) : ""}
+    ${issues.length > 0 && !authenticationOnly ? workshopAuthorContactsHtml(item) : ""}
     ${
       issues.length > 0
         ? operatorIssueListHtml(issues, item, context)
         : `<section class="operator-pass"><strong>Passed</strong><span>No user-facing problem was found.</span></section>`
     }
+    ${itemFailures.map((failure) => artifactLinksHtml((failure.attachments || []).filter((attachment) => /highlighted-issue-screenshot/i.test(attachment.name)), context)).join("")}
     <details class="item-developer-details">
       <summary>Developer evidence (optional)</summary>
       <div class="item-developer-body">
@@ -3690,7 +3867,13 @@ function operatorIssueHtml(issue, index, item, context) {
     return parScanOperatorIssueHtml(issue, index, item, context);
   }
 
-  const severityLabel = issue.severity === "blocker" ? "Blocking issue" : "Needs fix";
+  const severityLabel = ["SOURCE_SCAN_INCOMPLETE", "LINK_CHECK_INCOMPLETE"].includes(issue.code) ? "Partially checked" : issue.code === "AUTHENTICATION_REQUIRED"
+    ? "Not tested"
+    : issue.code === "QA_SETUP_FAILED" || issue.code === "QA_CHECK_FAILED" || issue.code === "PAGE_TIMED_OUT"
+      ? "Run again"
+      : issue.severity === "blocker"
+        ? "Blocking issue"
+        : "Needs fix";
   const affected = operatorIssueAffectedItemsHtml(issue, item);
   const location = issueLocationForItem(issue, item);
   const reproduction = operatorIssueReproduction(issue, item);
@@ -3750,7 +3933,7 @@ function parOperatorEntryHtml(detail, detailIndex, item, reviewId) {
         <h5>${escapeHtml(objectName)}</h5>
         <p>${escapeHtml(guidance.shortFinding)}</p>
       </div>
-      <button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}" data-review-add-label="Add to PAR Retest" data-review-selected-label="In PAR Retest">Add to PAR Retest</button>
+      <button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}" data-review-add-label="Add to PAR Retest" data-review-selected-label="Remove from PAR Retest">Add to PAR Retest</button>
     </div>
     <div class="issue-guidance">
       <p><strong>Problem:</strong> ${escapeHtml(guidance.finding)}</p>
@@ -3804,13 +3987,15 @@ function unifiedParSourceHtml(source, catalogItem) {
 
   const catalogUrl = catalogItem?.normalized_href || catalogItem?.absolute_url || catalogItem?.href || "";
   const actionUrl = stableWorkshopSourceUrl(source.pageUrl || "", catalogUrl);
+  const excerpt = sanitizeSensitiveText(source.sourceExcerpt || "");
 
   return `<div class="par-source-row">
     <div class="par-source-copy">
       <strong>${escapeHtml(labLabel || "Workshop source")}</strong>
       ${details.map((detail) => `<span>${escapeHtml(detail)}</span>`).join("")}
+      ${excerpt ? `<code>${escapeHtml(excerpt)}</code>` : ""}
     </div>
-    ${actionUrl ? externalActionLinkHtml(actionUrl, "Open workshop") : ""}
+    ${actionUrl ? externalActionLinkHtml(actionUrl, isExactLabSourceUrl(actionUrl) ? "Open exact lab" : catalogItemOpenLabel(catalogItem?.type)) : ""}
   </div>`;
 }
 
@@ -3903,7 +4088,7 @@ function parScanOperatorIssueHtml(issue, index, item, context) {
   return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
     <div class="par-entry-heading">
       <div class="operator-issue-heading">${priorityBadgeHtml(issue)}<span class="pill warn">Page not scanned</span><h4>${escapeHtml(index + 1)}. ${escapeHtml(issueDisplayLabel(issue))}</h4></div>
-      <button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}" data-review-add-label="Add to PAR Retest" data-review-selected-label="In PAR Retest">Add to PAR Retest</button>
+      <button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}" data-review-add-label="Add to PAR Retest" data-review-selected-label="Remove from PAR Retest">Add to PAR Retest</button>
     </div>
     <div class="issue-guidance"><p><strong>What failed:</strong> ${escapeHtml(`${pageCount} workshop page${pageCount === 1 ? " was" : "s were"} not scanned, so PAR links on ${pageCount === 1 ? "that page" : "those pages"} were not checked.`)}</p><p><strong>What to change:</strong> Open each entry below and follow its specific fix.</p></div>
     <div class="issue-location-block">
@@ -3956,13 +4141,15 @@ function issueLocationForItem(issue, item) {
   const locationHint = sourceLocationLabel(detail) || detail?.location || detail?.heading || "";
   const sectionKey = section.toLowerCase();
   const locationKey = String(locationHint).toLowerCase();
-  const label = !locationHint
-    ? section
-    : locationKey.includes(sectionKey)
-      ? String(locationHint)
-      : sectionKey.includes(locationKey)
-        ? section
-        : `${section} / ${locationHint}`;
+  const label = /^Workshop Source Quality$/i.test(section) && locationHint
+    ? String(locationHint)
+    : !locationHint
+      ? section
+      : locationKey.includes(sectionKey)
+        ? String(locationHint)
+        : sectionKey.includes(locationKey)
+          ? section
+          : `${section} / ${locationHint}`;
   const detailText = detail?.text || detail?.alt || detail?.object_name || "";
   const catalogUrl = item.catalogItem?.normalized_href || item.catalogItem?.absolute_url || item.catalogItem?.href || "";
   const url = stableWorkshopSourceUrl(
@@ -4018,9 +4205,7 @@ function cleanWorkshopActionUrl(value) {
       url.hostname.toLowerCase() === "livelabs.oracle.com" &&
       url.pathname.toLowerCase().startsWith("/ords/")
     ) {
-      for (const key of Array.from(url.searchParams.keys())) {
-        if (/^(?:lab|p\d+_lab)$/i.test(key)) url.searchParams.delete(key);
-      }
+      for (const key of ["session", "cs", "p_instance", "x01"]) url.searchParams.delete(key);
     }
     return url.toString();
   } catch {
@@ -4076,9 +4261,8 @@ function operatorIssueAffectedItemsHtml(issue, item) {
   }
 
   const entries = details
-    .map((detail, index) => operatorIssueDetail(detail, index, item))
-    .filter(Boolean)
-    .slice(0, 8);
+    .map((detail, index) => operatorIssueDetail(detail, index, item, issue))
+    .filter(Boolean);
 
   if (entries.length === 0) {
     return "";
@@ -4112,10 +4296,15 @@ function operatorIssueAffectedHeading(issue) {
   if (issue.code === "BROKEN_EMBEDDED_CONTENT") return "Broken embedded item to repair or remove";
   if (issue.code === "ASSET_ACTION_FAILED") return "Asset action that failed";
   if (issue.code === "CONTENT_TEXT_DEFECT") return "Placeholder or misspelling to replace";
+  if (issue.code === "MARKDOWN_FORMATTING") return "Markdown source to correct";
+  if (issue.code === "WRITING_GRAMMAR") return "Grammar or punctuation to review";
+  if (issue.code === "POSSIBLE_TYPO") return "Word to review";
   return "Affected item";
 }
 
 function operatorIssueProblem(issue, item) {
+  if (issue.code === "LINK_CHECK_INCOMPLETE") return issue.message;
+  if (issue.code === "SOURCE_SCAN_INCOMPLETE") return issue.message || "The workshop opened, but some instruction sources could not be checked.";
   const details = operatorIssueDetails(issue);
   const issueCode = canonicalIssueCode(issue.code);
   if (issueCode === "WORKSHOP_NOT_AVAILABLE") {
@@ -4123,6 +4312,18 @@ function operatorIssueProblem(issue, item) {
   }
   if (issueCode === "AUTHENTICATION_REQUIRED") {
     return `The QA browser reached Oracle Sign In before it could inspect ${catalogItemDisplayTitle(item?.catalogItem)}. The identity URL is the Oracle authentication page reached by the flow, not a workshop link to repair, and this does not prove that the catalog item is broken.`;
+  }
+  if (issueCode === "PAGE_TIMED_OUT") {
+    return `The QA browser did not finish this check before the time limit. This result alone does not prove that ${catalogItemDisplayTitle(item?.catalogItem)} is broken.`;
+  }
+  if (issueCode === "UNEXPECTED_DESTINATION") {
+    return `The action opened a page, but it was not the expected LiveLabs destination for ${catalogItemDisplayTitle(item?.catalogItem)}.`;
+  }
+  if (issueCode === "QA_SETUP_FAILED") {
+    return `The QA browser or its saved session failed before ${catalogItemDisplayTitle(item?.catalogItem)} could be checked. This is not an owner-facing workshop defect.`;
+  }
+  if (issueCode === "QA_CHECK_FAILED") {
+    return `The automated check stopped without enough evidence to identify a problem in ${catalogItemDisplayTitle(item?.catalogItem)}.`;
   }
   if (issue.code === "BROKEN_VISIBLE_LINK" && details.length > 0) {
     const first = details[0] || {};
@@ -4151,6 +4352,16 @@ function operatorIssueProblem(issue, item) {
     const exactText = operatorIssueDetailLabel(details[0], 0) || "The listed text";
     return `The exact text "${exactText}" is unfinished placeholder or misspelled content that readers can see.`;
   }
+  if (issue.code === "MARKDOWN_FORMATTING" && details.length > 0) {
+    return `${details.length} Markdown formatting problem${details.length === 1 ? "" : "s"} may prevent workshop text, links, headings, or code blocks from rendering as intended.`;
+  }
+  if (issue.code === "WRITING_GRAMMAR" && details.length > 0) {
+    return `${details.length} likely repeated-word or punctuation-spacing problem${details.length === 1 ? "" : "s"} was found in the workshop source.`;
+  }
+  if (issue.code === "POSSIBLE_TYPO" && details.length > 0) {
+    const first = details[0] || {};
+    return `The word "${first.marker || operatorIssueDetailLabel(first, 0) || "listed below"}" may be misspelled. The report includes a suggested correction and the exact source line.`;
+  }
   if (issue.code === "CONTENT_RELEVANCE") {
     const detail = primaryOperatorIssueDetail(issue);
     const expectedTerms = Array.isArray(detail.expectedTerms) ? detail.expectedTerms.filter(Boolean) : [];
@@ -4171,10 +4382,16 @@ function operatorIssueReproduction(issue, item) {
       return `Open "${itemTitle}" from LiveLabs search. The published card does not reach a usable item page.`;
     case "AUTHENTICATION_REQUIRED":
       return `Open "${itemTitle}" with the QA browser session. The run stopped at Oracle Sign In before content checks began.`;
+    case "UNEXPECTED_DESTINATION":
+      return `Open "${itemTitle}" from its LiveLabs catalog card and repeat the reported action; confirm which page opens.`;
     case "ASSET_ACTION_FAILED":
       return `Open ${itemTitle}, go to ${location}, and click "${operatorIssueDetailLabel(first, 0) || "the listed asset action"}".`;
     case "CONTENT_TEXT_DEFECT":
       return `Open ${itemTitle}, go to ${location}, and search for "${operatorIssueDetailLabel(first, 0) || "the listed text"}".`;
+    case "MARKDOWN_FORMATTING":
+    case "WRITING_GRAMMAR":
+    case "POSSIBLE_TYPO":
+      return `Open ${itemTitle}, go to ${location}, and review Markdown line ${first.sourceLine || "shown below"}.`;
     case "BROKEN_VISIBLE_LINK":
       return `Open ${itemTitle}, go to ${location}, and click "${operatorIssueDetailLabel(first, 0) || "the listed link"}".`;
     case "BROKEN_VISIBLE_IMAGE":
@@ -4185,26 +4402,31 @@ function operatorIssueReproduction(issue, item) {
   }
 }
 
-function operatorIssueDetail(detail, index, item) {
+function operatorIssueDetail(detail, index, item, issue) {
   const label = operatorIssueDetailLabel(detail, index);
   if (!label) return null;
   if (!detail || typeof detail !== "object") return { label, url: "", detail: "", actionUrl: "" };
   const url = safeExternalUrl(detail.url || detail.href || detail.src || "");
   const internalPreview = isInternalPreviewContentUrl(url);
-  const result = internalPreview
-    ? "Internal preview address; replace it with a public documentation link"
-    : detail.status
-      ? `HTTP ${detail.status}`
-      : detail.error
-        ? shortFailure(detail.error)
-        : "";
+  const result = detail.suggestion
+    ? String(detail.suggestion)
+    : internalPreview
+      ? "Internal preview address; replace it with a public documentation link"
+      : detail.status
+        ? `HTTP ${detail.status}`
+        : detail.error
+          ? shortFailure(detail.error)
+          : "";
   const location = detail.location ? `Found in ${detail.location}` : "";
+  const sourceLine = detail.sourceLine ? `Markdown line ${detail.sourceLine}` : "";
+  const sourceExcerpt = detail.text && detail.marker ? `Source: ${detail.text}` : "";
   const fallbackUrl = item?.catalogItem?.normalized_href || item?.catalogItem?.absolute_url || item?.catalogItem?.href || "";
+  const sourceQualityIssue = ["MARKDOWN_FORMATTING", "WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(issue?.code);
   const actionUrl = stableWorkshopSourceUrl(detail.pageUrl || detail.page_url || "", fallbackUrl);
   return {
     label,
     url,
-    detail: [location, result].filter(Boolean).join(" / "),
+    detail: [location, sourceLine, sourceExcerpt, result].filter(Boolean).join(" / "),
     actionUrl,
     actionLabel: sourceLocationActionLabel(detail, item?.catalogItem?.type),
   };
@@ -4227,6 +4449,7 @@ function operatorIssueDetailLabel(detail, index) {
   }
 
   if (detail.alt) return `Image: ${detail.alt}`;
+  if (detail.marker && detail.label) return `${detail.label}: ${detail.marker}`;
   if (detail.text) return String(detail.text);
   if (detail.label) return String(detail.label);
   if (detail.object_name) return `File: ${detail.object_name}`;
@@ -4247,10 +4470,22 @@ function operatorIssueDetailLabel(detail, index) {
 
 function operatorIssueAction(issue, item) {
   switch (canonicalIssueCode(issue.code)) {
+    case "LINK_CHECK_INCOMPLETE":
+      return "Open the listed link from its source page and retry the check. Do not replace a working link just because the checker was blocked.";
+    case "SOURCE_SCAN_INCOMPLETE":
+      return "Open each listed lab. If a page is blank or missing, restore its source or correct its manifest entry. A source-fetch failure alone does not prove that the rendered page is broken.";
     case "WORKSHOP_NOT_AVAILABLE":
       return "If this item was retired, disable or unpublish its catalog card. If it should remain active, correct its LiveLabs ID or route, republish it, and rerun this item.";
     case "AUTHENTICATION_REQUIRED":
       return "Refresh the QA browser sign-in session and rerun this item. Do not change the workshop unless the rerun reaches it and reports a content problem.";
+    case "PAGE_TIMED_OUT":
+      return "Rerun this item. If it times out again, inspect the reached page and network evidence before asking the workshop owner to change content.";
+    case "UNEXPECTED_DESTINATION":
+      return "Correct the catalog or action route so it opens the expected LiveLabs page, then republish and rerun this item.";
+    case "QA_SETUP_FAILED":
+      return "Repair the QA browser or saved sign-in setup, then rerun this item. Do not change the workshop based on this result.";
+    case "QA_CHECK_FAILED":
+      return "Rerun this item and use the developer evidence if it stops again. Do not change workshop content until the report identifies a specific defect.";
     case "BROKEN_VISIBLE_IMAGE":
       return "Replace or remove each image listed below, republish the workshop, then rerun this item.";
     case "BROKEN_VISIBLE_LINK":
@@ -4261,6 +4496,12 @@ function operatorIssueAction(issue, item) {
       return "Repair or remove each embedded item listed below, republish the workshop, then rerun this item.";
     case "CONTENT_TEXT_DEFECT":
       return "Replace the exact placeholder or misspelled text listed below, republish the item, and rerun this check.";
+    case "MARKDOWN_FORMATTING":
+      return "Correct the Markdown marker, heading, link, or code fence shown below, republish the workshop, and rerun this check.";
+    case "WRITING_GRAMMAR":
+      return "Review the exact source line below, correct the repeated word or punctuation spacing, republish the workshop, and rerun this check.";
+    case "POSSIBLE_TYPO":
+      return "Confirm the intended word using the source line below. Apply the suggested spelling when correct, republish the workshop, and rerun this check.";
     case "CONTENT_RELEVANCE":
       return `Open the ${humanIssueSection(issue.section)} page below. If it is blank or shows another workshop, correct that instructions-page configuration. If the page is correct, update the catalog title or metadata for "${item?.catalogItem?.title || "this workshop"}". Republish, then rerun this item.`;
     case "INSTRUCTIONS_FLOW":
@@ -4383,7 +4624,7 @@ function catalogOverviewCardHtml(item) {
 
 function catalogCheckHtml(test) {
   const statusTone = test.status === test.expectedStatus ? "pass" : "fail";
-  const statusLabel = test.status === test.expectedStatus ? "Passed" : "Failed";
+  const statusLabel = test.status === test.expectedStatus ? test.retry > 0 ? "Passed after retry" : "Passed" : "Failed";
 
   return `<div class="catalog-check">
     <strong>${escapeHtml(test.section)}</strong>
@@ -4409,9 +4650,10 @@ function catalogItemTypeLabel(type) {
 }
 
 function catalogItemIdentifier(item) {
-  const id = item?.id || item?.slug || "";
+  const ids = Array.from(new Set([...(item?.ids || []), item?.id].filter(Boolean).map(String)));
+  const id = ids.length > 1 ? ids.join(", ") : ids[0] || item?.slug || "";
   if (!id) return "";
-  return item?.type === "livestack" ? `LiveStack ID ${id}` : `LiveLabs ID ${id}`;
+  return item?.type === "livestack" ? `LiveStack ID${ids.length > 1 ? "s" : ""} ${id}` : `LiveLabs ID${ids.length > 1 ? "s" : ""} ${id}`;
 }
 
 function catalogItemOpenLabel(type) {
@@ -4457,7 +4699,7 @@ function issuesForTest(test) {
 }
 
 function issueSeverityFromCode(code) {
-  if (/^(?:WORKSHOP_NOT_AVAILABLE|ROUTING_|TIMEOUT)$/i.test(canonicalIssueCode(code))) {
+  if (/^(?:WORKSHOP_NOT_AVAILABLE|ROUTING_)$/i.test(canonicalIssueCode(code))) {
     return "blocker";
   }
 
@@ -4637,6 +4879,14 @@ function failureExplanation(failure) {
       return `The published LiveLabs catalog item did not reach a usable page after retries. The browser ended at ${finalTitle}.`;
     case "AUTHENTICATION_REQUIRED":
       return "The QA browser reached Oracle Sign In before the item could be inspected. Refresh the QA sign-in session and rerun before asking the workshop owner to change anything.";
+    case "PAGE_TIMED_OUT":
+      return "The page did not finish loading or reach the expected state before the QA time limit. Rerun it before treating this as a workshop defect.";
+    case "UNEXPECTED_DESTINATION":
+      return "The action opened a page, but it was not the LiveLabs destination expected by this check.";
+    case "QA_SETUP_FAILED":
+      return "The QA browser, saved sign-in state, or test fixture failed before the LiveLabs item could be inspected.";
+    case "QA_CHECK_FAILED":
+      return "The automated check stopped without enough evidence to identify a workshop defect. Rerun the item and review the developer evidence if it repeats.";
     case "BROKEN_VISIBLE_IMAGE":
       return "A visible image on the page did not load correctly.";
     case "BROKEN_VISIBLE_LINK":
@@ -4645,14 +4895,18 @@ function failureExplanation(failure) {
       return "An embedded item, such as an iframe or media block, did not render correctly.";
     case "CONTENT_TEXT_DEFECT":
       return "The page showed content that looks unfinished, misspelled, or template-like.";
+    case "MARKDOWN_FORMATTING":
+      return "The workshop source contains Markdown that may not render as intended.";
+    case "WRITING_GRAMMAR":
+      return "The workshop source contains a likely repeated word or punctuation-spacing problem.";
+    case "POSSIBLE_TYPO":
+      return "The workshop source contains a word that may be misspelled and needs a quick author review.";
     case "CONTENT_RELEVANCE":
       return "The page loaded, but the visible content did not match the indexed catalog item closely enough.";
     case "INSTRUCTIONS_FLOW":
       return "The instructions path did not open or render correctly.";
     case "ASSET_ACTION_FAILED":
       return "A LiveStack asset action did not open, download, or navigate as expected.";
-    case "TIMEOUT":
-      return "The page did not reach the expected state before the test timeout.";
     default:
       return finalUrl
         ? `The test failed after the browser reached ${finalTitle}. Use the screenshot and trace for the exact page state.`
@@ -4664,8 +4918,8 @@ function issueTypeDefinition(code) {
   const canonicalCode = canonicalIssueCode(code);
   return ISSUE_TYPE_DEFINITIONS.find((item) => item.code === canonicalCode) || {
     code: canonicalCode,
-    label: canonicalCode,
-    description: "The report could not map this failure to a more specific known issue type yet.",
+    label: "QA check did not complete",
+    description: "The automated check stopped without enough evidence to identify a workshop defect. Rerun it before changing content.",
     priority: "P3",
   };
 }
@@ -4675,7 +4929,7 @@ function priorityDefinition(code) {
 }
 
 function issuePriority(issue) {
-  return issueTypeDefinition(issue?.code || "UNCLASSIFIED_FAILURE").priority || "P3";
+  return issueTypeDefinition(issue?.code || "QA_CHECK_FAILED").priority || "P3";
 }
 
 function itemPriority(item) {
@@ -5056,6 +5310,7 @@ function readReportHistory(reportsRoot, landingPage) {
 
         return {
           runId,
+          attemptId: summary.attemptId || "",
           reportChannel: summary.reportChannel || reportChannelFromRoot(reportsRoot),
           runType:
             summary.runType ||
@@ -5095,7 +5350,7 @@ export function reportHistoryPageHtml(history) {
   const runs = Array.isArray(history?.runs) ? history.runs : [];
   const channel = history?.report_channel || runs[0]?.reportChannel || "local";
   const landingPage = reportLandingPage(history?.landing_page);
-  const channelTitle = channel === "par" ? "PAR audit" : channel === "regression" ? "Overall regression" : "QA";
+  const channelTitle = channel === "retest" ? "Retest" : channel === "par" ? "PAR audit" : channel === "regression" ? "Overall regression" : "QA";
   const latestHref = `latest/${landingPage}`;
   const options = runs
     .map((run) => {
@@ -5266,6 +5521,7 @@ function historyRunState(run, landingPage = "") {
 }
 
 function historyRunType(run, landingPage = "") {
+  if (run?.runType === "retest" || run?.reportChannel === "retest") return { code: "retest", label: "Selected-item retest" };
   const code =
     run?.runType === "par" ||
     run?.reportChannel === "par" ||

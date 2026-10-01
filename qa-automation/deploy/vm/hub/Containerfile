@@ -1,0 +1,5 @@
+FROM docker.io/library/node:22-alpine
+WORKDIR /app
+COPY scripts/hub-server.mjs /app/scripts/hub-server.mjs
+ENV PORT=4180 QA_HUB_DATA=/var/qa-hub
+CMD ["node", "scripts/hub-server.mjs"]

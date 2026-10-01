@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 
 import { BasePage } from "../../pages/basePage.js";
 import { parseIntegerFlag } from "../../config/projectConfig.js";
@@ -49,7 +49,7 @@ export interface TextDefectRecord {
   pageUrl: string;
 }
 
-const DEFAULT_LINK_LIMIT = Math.max(0, parseIntegerFlag(process.env.QA_CONTENT_LINK_LIMIT, 50));
+const DEFAULT_LINK_LIMIT = Math.max(0, parseIntegerFlag(process.env.QA_CONTENT_LINK_LIMIT, 0));
 const LINK_TIMEOUT_MS = Math.max(5_000, parseIntegerFlag(process.env.QA_CONTENT_LINK_TIMEOUT_MS, 15_000));
 
 const TEXT_DEFECT_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
@@ -407,10 +407,11 @@ async function collectBrokenEmbeddedContentIssues(page: Page, options: ContentQu
 }
 
 async function collectBrokenLinkIssues(page: Page, options: ContentQualityOptions): Promise<ContentQualityIssue[]> {
-  const candidates = await collectVisibleLinks(page);
+  const candidates = (await collectVisibleLinks(page)).filter((link) => !isLiveLabsCatalogSearchUrl(link.url));
   const limit = options.linkLimit ?? DEFAULT_LINK_LIMIT;
   const linksToCheck = limit === 0 ? candidates : candidates.slice(0, limit);
   const brokenLinks: BrokenLinkRecord[] = [];
+  const unverified: BrokenLinkRecord[] = [];
 
   for (const link of linksToCheck) {
     try {
@@ -418,18 +419,18 @@ async function collectBrokenLinkIssues(page: Page, options: ContentQualityOption
 
       if (isBrokenLinkStatus(status)) {
         brokenLinks.push({ ...link, status });
-      }
+      } else if (AUTH_OR_RATE_LIMIT_STATUSES.has(status)) unverified.push({ ...link, status });
     } catch (error) {
-      brokenLinks.push({
+      unverified.push({
         ...link,
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  if (brokenLinks.length === 0) {
-    return [];
-  }
+  recordLinkCoverage(linksToCheck.length, candidates.length, unverified.length);
+  const coverageIssues = unverified.length ? [contentQualityIssue("LINK_CHECK_INCOMPLETE", "Some links could not be verified", "minor", "These links could not be verified because of authentication, rate limits, or a network failure. This is not a confirmed broken link.", unverified)] : [];
+  if (brokenLinks.length === 0) return coverageIssues;
 
   return [
     contentQualityIssue(
@@ -445,6 +446,7 @@ async function collectBrokenLinkIssues(page: Page, options: ContentQualityOption
         brokenLinks,
       },
     ),
+    ...coverageIssues,
   ];
 }
 
@@ -498,7 +500,24 @@ async function collectVisibleLinks(page: Page): Promise<LinkCandidate[]> {
   return links;
 }
 
-async function probeLinkStatus(page: Page, url: string): Promise<number> {
+export function recordLinkCoverage(checked: number, found: number, unverified: number): void {
+  test.info().annotations.push({ type: "link-coverage", description: JSON.stringify({ checked, found, unverified }) });
+}
+
+export function isLiveLabsCatalogSearchUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.hostname.toLowerCase() !== "livelabs.oracle.com") return false;
+    if (/\/livelabs-workshop-cards$/i.test(url.pathname) && url.searchParams.has("search")) return true;
+    if (!/\/pls\/apex\/(?:f\/?)?$/i.test(url.pathname)) return false;
+    const apexRoute = url.searchParams.get("p") || "";
+    return /^133:100(?::|$)/.test(apexRoute) && /(?:^|:)SEARCH(?::|$)/i.test(apexRoute);
+  } catch {
+    return false;
+  }
+}
+
+export async function probeLinkStatus(page: Page, url: string): Promise<number> {
   try {
     const response = await page.request.head(url, {
       failOnStatusCode: false,
@@ -506,7 +525,10 @@ async function probeLinkStatus(page: Page, url: string): Promise<number> {
       timeout: LINK_TIMEOUT_MS,
     });
 
-    return response.status();
+    const status = response.status();
+    await response.dispose();
+    if (status >= 400) throw new Error("Confirm unsuccessful HEAD with GET");
+    return status;
   } catch {
     const response = await page.request.get(url, {
       failOnStatusCode: false,
@@ -514,7 +536,9 @@ async function probeLinkStatus(page: Page, url: string): Promise<number> {
       timeout: LINK_TIMEOUT_MS,
     });
 
-    return response.status();
+    const status = response.status();
+    await response.dispose();
+    return status;
   }
 }
 

@@ -3,14 +3,95 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import RootSummaryReporter from "./root-summary-reporter.mjs";
 
 import {
+  classifyResult,
   issueDetailHtml,
   reportHistoryPageHtml,
   resultsCsv,
   writeReportHistory,
   writeSummaryFiles,
 } from "./root-summary-reporter.mjs";
+
+test("a passing retry replaces the failed attempt everywhere", () => {
+  const reporter = new RootSummaryReporter();
+  reporter.totalTests = 1;
+  const base = { testId: "same-test", title: "A check", titlePath: ["A check"], file: "test.spec.ts", section: "Overview", expectedStatus: "passed", durationMs: 1, catalogItem: { id: "1", type: "workshop", title: "A" }, classification: { code: "PASSED" } };
+  reporter.results = [{ ...base, status: "failed", retry: 0, issues: [{ code: "BROKEN_VISIBLE_LINK" }] }, { ...base, status: "passed", retry: 1, issues: [] }];
+  const summary = reporter.summary({ status: "passed" }, new Date(), "test");
+  assert.equal(summary.counts.total, 1);
+  assert.equal(summary.counts.unexpected, 0);
+  assert.equal(summary.counts.flaky, 1);
+  assert.equal(summary.failures.length, 0);
+  assert.equal(summary.catalogItems[0].status, "passed");
+  assert.equal(summary.catalogItems[0].issues.length, 0);
+});
+
+test("classifies Oracle profile redirects as a QA sign-in boundary", () => {
+  const classification = classifyResult({
+    status: "failed",
+    expectedStatus: "passed",
+    errors: ["The browser reached Welcome to My Login Profile."],
+    finalUrl: "https://idcs.example.identity.oraclecloud.com/ui/v1/myconsole?root=my-info&my-info=my_profile_security",
+    titlePath: ["Generated LiveStack Overview"],
+    file: "tests/platform/generated/livestackOverview.generated.spec.ts",
+    issues: [{
+      code: "UNCLASSIFIED_FAILURE",
+      label: "Unclassified failure",
+      severity: "major",
+      message: "The page did not match the expected state.",
+    }],
+  });
+
+  assert.deepEqual(classification, {
+    code: "AUTHENTICATION_REQUIRED",
+    label: "QA sign-in required - not tested",
+    severity: "warn",
+  });
+});
+
+test("replaces generic failures with a clear rerun category", () => {
+  const classification = classifyResult({
+    status: "failed",
+    expectedStatus: "passed",
+    errors: ["The check stopped without a recognized owner-facing finding."],
+    finalUrl: "https://livelabs.oracle.com/example",
+    titlePath: ["Generated workshop overview"],
+    file: "tests/platform/generated/workshopOverview.generated.spec.ts",
+    issues: [],
+  });
+
+  assert.deepEqual(classification, {
+    code: "QA_CHECK_FAILED",
+    label: "QA check did not complete",
+    severity: "warn",
+  });
+});
+
+test("separates page timeouts from QA setup failures", () => {
+  const pageTimeout = classifyResult({
+    status: "timedOut",
+    expectedStatus: "passed",
+    errors: ["Timeout 30000ms exceeded while waiting for the page."],
+    finalUrl: "https://livelabs.oracle.com/example",
+    titlePath: ["Generated workshop overview"],
+    file: "tests/platform/generated/workshopOverview.generated.spec.ts",
+    issues: [],
+  });
+  const setupFailure = classifyResult({
+    status: "failed",
+    expectedStatus: "passed",
+    errors: ["Target page, context or browser has been closed"],
+    finalUrl: "",
+    titlePath: ["Generated workshop overview"],
+    file: "tests/platform/generated/workshopOverview.generated.spec.ts",
+    issues: [],
+  });
+
+  assert.equal(pageTimeout.code, "PAGE_TIMED_OUT");
+  assert.equal(setupFailure.code, "QA_SETUP_FAILED");
+});
 
 test("results CSV keeps one row per issue and masks sensitive URL values", () => {
   const parToken = "private-token-value";
@@ -398,7 +479,7 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v12"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v13"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
@@ -455,6 +536,115 @@ test("renders overall regression items as searchable paginated expandable table 
     assert.doesNotMatch(html, /<dialog/);
     assert.doesNotMatch(html, /showModal/);
     assert.doesNotMatch(html, /href="#item-workshop-877"/);
+  } finally {
+    fs.rmSync(reportsRoot, { recursive: true, force: true });
+  }
+});
+
+test("renders source quality findings with plain fixes and exact lab links", () => {
+  const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-source-quality-"));
+  const outputDir = path.join(reportsRoot, "latest");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const exactLabUrl = "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=2-configure";
+
+  try {
+    const sourceDetail = (overrides) => ({
+      location: "Lab 2: Configure the application / Task 2: Import the sample",
+      pageUrl: exactLabUrl,
+      sourceFileUrl: "https://livelabs.oracle.com/cdn/example/lab-2.md",
+      sourceLine: 18,
+      labTitle: "Lab 2: Configure the application",
+      labNumber: 2,
+      section: "Task 2: Import the sample",
+      ...overrides,
+    });
+    const issues = [
+      {
+        code: "MARKDOWN_FORMATTING",
+        label: "Markdown formatting",
+        severity: "minor",
+        message: "One Markdown formatting problem was found.",
+        section: "Workshop Source Quality",
+        details: [sourceDetail({
+          label: "Space before closing **",
+          marker: "**",
+          text: "**Important: ** Select the compartment.",
+          suggestion: "Remove the space immediately before the closing **.",
+        })],
+      },
+      {
+        code: "WRITING_GRAMMAR",
+        label: "Grammar or punctuation",
+        severity: "minor",
+        message: "One likely grammar problem was found.",
+        section: "Workshop Source Quality",
+        details: [sourceDetail({
+          label: "Repeated word",
+          marker: "the the",
+          text: "Open the the application.",
+          sourceLine: 27,
+          suggestion: "Remove one repeated \"the\".",
+        })],
+      },
+      {
+        code: "POSSIBLE_TYPO",
+        label: "Possible typo",
+        severity: "minor",
+        message: "One word may be misspelled.",
+        section: "Workshop Source Quality",
+        details: [sourceDetail({
+          label: "Possible typo: sentnce",
+          marker: "sentnce",
+          text: "Enter the sample sentnce.",
+          sourceLine: 32,
+          suggestion: "Review \"sentnce\" and replace it with \"sentence\" if that is the intended word.",
+        })],
+      },
+    ];
+
+    writeSummaryFiles(outputDir, {
+      runId: "2026-09-28T10-00-00-000Z",
+      reportChannel: "regression",
+      status: "failed",
+      startedAt: "2026-09-28T10:00:00.000Z",
+      endedAt: "2026-09-28T10:01:00.000Z",
+      durationMs: 60000,
+      counts: { total: 1, passed: 0, failed: 1, skipped: 0, timedOut: 0, interrupted: 0, unexpected: 1, flaky: 0 },
+      failureCategories: issues.map((issue) => ({ code: issue.code, label: issue.label, count: 1 })),
+      catalogItems: [{
+        key: "workshop:1234",
+        status: "failed",
+        issueCount: issues.length,
+        counts: { total: 1, unexpected: 1 },
+        sections: ["Workshop Source Quality"],
+        catalogItem: { type: "workshop", id: "1234", title: "Example source workshop", absolute_url: "https://livelabs.oracle.com/example" },
+        issues,
+        tests: [{
+          section: "Workshop Source Quality",
+          status: "failed",
+          expectedStatus: "passed",
+          classification: { code: "MARKDOWN_FORMATTING", label: "Markdown formatting" },
+          finalUrl: exactLabUrl,
+          file: "tests/platform/generated/sourceQuality.generated.spec.ts",
+          line: 1,
+        }],
+      }],
+      failures: [],
+      sections: [],
+    }, reportsRoot);
+
+    const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
+    assert.match(html, /Markdown source to correct/);
+    assert.match(html, /Grammar or punctuation to review/);
+    assert.match(html, /Word to review/);
+    assert.match(html, /Markdown line 18/);
+    assert.match(html, /Remove the space immediately before the closing/);
+    assert.match(html, /replace it with &quot;sentence&quot;/);
+    assert.match(html, /Open exact lab/);
+    assert.match(html, new RegExp(exactLabUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.ok(html.indexOf('value="priority:P1"') < html.indexOf('value="MARKDOWN_FORMATTING"'));
+    assert.match(html, /value="WRITING_GRAMMAR"/);
+    assert.match(html, /value="POSSIBLE_TYPO"/);
   } finally {
     fs.rmSync(reportsRoot, { recursive: true, force: true });
   }
@@ -570,6 +760,7 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
               sourceLine: 612,
               section: "Add a connection to the moviestream_sandbox bucket",
               instruction: "2. In the Add Connection panel, enter the bucket details.",
+              sourceExcerpt: "Download the moviestream_sandbox data asset.",
             }],
           }],
         }, {
@@ -608,6 +799,8 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
     assert.match(html, /Task: Add a connection to the moviestream_sandbox bucket/);
     assert.match(html, /Step 2: In the Add Connection panel/);
     assert.match(html, /Markdown line 612/);
+    assert.match(html, /Download the moviestream_sandbox data asset/);
+    assert.match(html, /Open exact lab/);
     assert.match(html, /Open workshop/);
     assert.doesNotMatch(html, /href="[^"]*run-workshop/i);
     assert.match(html, /href="https:\/\/livelabs\.oracle\.com\/cdn\/example\/index\.html\?lab=2-data-catalog"/i);
@@ -786,6 +979,36 @@ test("builds report history from immutable run folders newest first", () => {
     assert.match(newestReport, /Previous report/);
     assert.match(oldestReport, /\.\.\/2026-07-27T08-20-53-917Z\/par-links\.html/);
     assert.match(oldestReport, /Next report/);
+  } finally {
+    fs.rmSync(reportsRoot, { recursive: true, force: true });
+  }
+});
+
+test("merges duplicate catalog titles and repeated issue types into one workshop row", () => {
+  const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-duplicate-items-"));
+  const outputDir = path.join(reportsRoot, "latest");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const title = "Build a marketing analytics application powered by MySQL HeatWave";
+  const duplicate = (id, section) => ({
+    key: `workshop:${id}`, status: "failed", issueCount: 1,
+    counts: { total: 1, passed: 0, failed: 1, skipped: 0, unexpected: 1 }, sections: [section],
+    catalogItem: { type: "workshop", id, title, normalized_href: `https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=${id}` },
+    issues: [{ code: "WORKSHOP_NOT_AVAILABLE", label: "Workshop not available", severity: "blocker", message: "Route failed." }],
+    tests: [{ title: `checks ${id}`, section, status: "failed", expectedStatus: "passed", file: "tests/platform/generated/workshopOverview.generated.spec.ts", line: 1 }],
+  });
+  try {
+    writeSummaryFiles(outputDir, {
+      runId: "duplicates", reportChannel: "regression", status: "failed", startedAt: "2026-10-01T00:00:00Z", endedAt: "2026-10-01T00:01:00Z", durationMs: 60000,
+      counts: { total: 2, passed: 0, failed: 2, skipped: 0, timedOut: 0, interrupted: 0, unexpected: 2, flaky: 0 },
+      failureCategories: [{ code: "WORKSHOP_NOT_AVAILABLE", label: "Workshop not available", count: 2 }],
+      catalogItems: [duplicate("3605", "Generated Workshop Overview"), duplicate("4252", "Generated Preview Instructions")], failures: [], sections: [],
+    }, reportsRoot);
+    const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
+    assert.equal((html.match(/<details class="result-row/g) || []).length, 1);
+    assert.match(html, /LiveLabs IDs 3605, 4252/);
+    assert.match(html, /1\. Workshop not available/);
+    assert.doesNotMatch(html, /2\. Workshop not available/);
+    assert.match(html, /"itemIds":\["3605","4252"\]/);
   } finally {
     fs.rmSync(reportsRoot, { recursive: true, force: true });
   }

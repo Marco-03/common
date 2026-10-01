@@ -5,6 +5,7 @@ import {
   buildCatalogItem,
   catalogItemTypeFromCard,
   explicitCatalogId,
+  mergeCatalogDuplicates,
 } from "./catalog-index.mjs";
 
 test("keeps Sprints and events out of the workshop type", () => {
@@ -19,6 +20,14 @@ test("keeps Sprints and events out of the workshop type", () => {
   assert.equal(
     catalogItemTypeFromCard({ href: "/view-workshop?wid=848", cardClass: "workshop-card-class" }),
     "workshop",
+  );
+  assert.equal(
+    catalogItemTypeFromCard({ href: "/view-workshop?wid=1057", catalogTypeHint: "Sprints", title: "Can I try out other things on my workshop reservation?" }),
+    "sprint",
+  );
+  assert.equal(
+    catalogItemTypeFromCard({ href: "/view-workshop?wid=3386", catalogTypeHint: "Sprints", title: "Como adicionar notas para apoiar a apresentação e a narrativa no Oracle Analytics Cloud (OAC)?" }),
+    "sprint",
   );
 });
 
@@ -50,4 +59,11 @@ test("prefers a published LiveLabs ID label when a card provides one", () => {
     ),
     "4022",
   );
+});
+
+test("merges duplicate catalog titles into one canonical item", () => {
+  const first = { id: "3605", type: "workshop", title: "HeatWave", normalized_href: "https://example.test/3605" };
+  const second = { id: "4252", type: "workshop", title: "HeatWave", normalized_href: "https://example.test/4252" };
+  assert.deepEqual(mergeCatalogDuplicates(first, second).duplicate_ids, ["3605", "4252"]);
+  assert.deepEqual(mergeCatalogDuplicates(first, second).duplicate_urls, ["https://example.test/3605", "https://example.test/4252"]);
 });

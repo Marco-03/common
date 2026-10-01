@@ -187,6 +187,19 @@ function slugify(value) {
     .slice(0, 80);
 }
 
+function catalogIdentityKey(item) {
+  return slugify(item.title) || item.normalized_href;
+}
+
+export function mergeCatalogDuplicates(existing, incoming) {
+  const preferred = existing.type === "workshop" && incoming.type !== "workshop" ? incoming : existing;
+  return {
+    ...preferred,
+    duplicate_ids: Array.from(new Set([...(existing.duplicate_ids || []), existing.id, ...(incoming.duplicate_ids || []), incoming.id].filter(Boolean).map(String))),
+    duplicate_urls: Array.from(new Set([...(existing.duplicate_urls || []), existing.normalized_href, ...(incoming.duplicate_urls || []), incoming.normalized_href].filter(Boolean))),
+  };
+}
+
 function shortHash(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 10);
 }
@@ -667,11 +680,8 @@ async function collectCatalogResultPages(page, options, warnings, seen, pageBudg
       .join(" ");
     for (const rawItem of rawItems) {
       const item = buildCatalogItem(options.baseUrl, { ...rawItem, catalogTypeHint });
-      const key = item.normalized_href;
-
-      if (!seen.has(key) || (seen.get(key)?.type === "workshop" && item.type !== "workshop")) {
-        seen.set(key, item);
-      }
+      const key = catalogIdentityKey(item);
+      seen.set(key, seen.has(key) ? mergeCatalogDuplicates(seen.get(key), item) : item);
 
       if (options.maxItems && seen.size >= options.maxItems) {
         return { reachedItemCap: true, reachedPageCap: false };

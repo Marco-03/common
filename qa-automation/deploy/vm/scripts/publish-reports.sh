@@ -3,7 +3,7 @@ set -euo pipefail
 
 channel="${1:-}"
 case "$channel" in
-  par|regression) ;;
+  par|regression|retest) ;;
   *) echo "Usage: publish-reports.sh <par|regression>" >&2; exit 2 ;;
 esac
 

@@ -113,6 +113,11 @@ Ignore next.owner@oracle.com here.
     expect(found.every((url) => !url.endsWith(")**"))).toBe(true);
   });
 
+  test("removes LiveLabs custom video size suffixes before checking the PAR", () => {
+    expect(extractParUrlsFromText(PAR_URL.replace("assets/demo.zip", "livestack/Videos/peakgear/table-assist.mp4") + ":medium"))
+      .toEqual([PAR_URL.replace("assets/demo.zip", "livestack/Videos/peakgear/table-assist.mp4")]);
+  });
+
   test("ignores explicit angle-bracket PAR placeholders without hiding real links", () => {
     const placeholderUrl =
       "https://objectstorage.eu-frankfurt-1.oraclecloud.com/p/%3Cyour-par-token%3E/n/example/b/qa/o/oci-files.zip";

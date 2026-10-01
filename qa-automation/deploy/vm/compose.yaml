@@ -64,6 +64,27 @@ services:
     networks:
       - qa_internal
 
+  hub:
+    build:
+      context: ../..
+      dockerfile: deploy/vm/hub/Containerfile
+    restart: unless-stopped
+    environment:
+      QA_JENKINS_URL: http://jenkins:${QA_JENKINS_INTERNAL_PORT}/jenkins
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-qa-admin}
+      QA_AUTH_TARGET_URL: ${QA_AUTH_TARGET_URL:-}
+      QA_ROOT_REPORTS_BASE: /var/qa-reports
+    secrets:
+      - jenkins_admin_secret
+    volumes:
+      - hub_data:/var/qa-hub
+      - qa_reports:/var/qa-reports:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - qa_internal
+
   portal:
     build:
       context: ../..
@@ -71,6 +92,8 @@ services:
     image: livelabs-qa-portal:local
     restart: unless-stopped
     depends_on:
+      hub:
+        condition: service_started
       jenkins:
         condition: service_healthy
       par-resolver:
@@ -119,6 +142,7 @@ secrets:
     file: ./secrets/tls.key
 
 volumes:
+  hub_data:
   jenkins_home:
   qa_reports:
 

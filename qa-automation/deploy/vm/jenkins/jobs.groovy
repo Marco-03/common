@@ -27,7 +27,8 @@ pipelineJob("livelabs-qa-engine") {
     stringParam("TEST_RETRIES", "1", "Playwright retries")
     stringParam("CATALOG_RETRIES", "3", "Catalog crawler retries")
     stringParam("CATALOG_RETRY_DELAY_MS", "5000", "Catalog retry delay")
-    stringParam("CONTENT_LINK_LIMIT", "50", "Visible links checked per page; 0 checks all")
+    stringParam("CONTENT_LINK_LIMIT", "0", "Visible links checked per page; 0 checks all")
+    stringParam("RETEST_SELECTION", "", "Managed QA Hub retest selection")
     stringParam("PAR_DISCOVERY_CONCURRENCY", "3", "Parallel source files per item")
     stringParam("PAR_SOURCE_TIMEOUT_MS", "45000", "Source fetch timeout")
     stringParam("PAR_RETRIES", "2", "PAR probe retries")
@@ -130,7 +131,7 @@ pipelineJob("livelabs-overall-regression") {
     stringParam("CATALOG_ITEM_IDS", "", "Optional comma-separated IDs for a targeted rerun")
     stringParam("TEST_WORKERS", "5", "Playwright workers in the single combined report run")
     stringParam("TEST_RETRIES", "1", "Retry count for temporary failures")
-    stringParam("CONTENT_LINK_LIMIT", "50", "Visible links checked per page; use 0 for all")
+    stringParam("CONTENT_LINK_LIMIT", "0", "Visible links checked per page; use 0 for all")
   }
   triggers {
     cron(nightlyCron)

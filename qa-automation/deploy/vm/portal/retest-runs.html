@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Retest runs | LiveLabs QA</title>
+<style>body{font:16px Arial,sans-serif;margin:0;color:#183344;background:#f5f7f8}header,main{padding:24px;max-width:1050px;margin:auto}a{color:#0067a8}nav{display:flex;gap:20px}article{padding:20px 0;border-bottom:1px solid #b9cbd6;display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}h1{font-size:28px}h2{font-size:18px}p{line-height:1.5}a{overflow-wrap:anywhere}</style>
+<link rel="stylesheet" href="/regression/latest/hub-ui.css">
+<body class="retest-page run-history">
+<header><div class="page-title"><h1>Retest runs</h1><nav class="hub-nav"><a href="/">QA Hub home</a><a href="/regression/">All runs</a><a href="/regression/latest/retest-list.html">Retest List</a><a href="/retest/">Retest reports</a></nav></div></header>
+<main><div class="runs-heading"><h2>Recent retests</h2><span id="run-count"></span></div><p id="status" role="status">Loading retests...</p><section id="runs"></section></main>
+<script>
+async function refresh(){
+ try{
+  const response=await fetch('/api/hub/runs',{cache:'no-store'});if(!response.ok)throw new Error();
+  const runs=await response.json();document.querySelector('#status').textContent=runs.length?'':'No retests have been started.';
+  const container=document.querySelector('#runs');container.replaceChildren();
+  document.querySelector('#run-count').textContent=runs.length+' runs';
+  for(const run of runs){
+   const row=document.createElement('article'),copy=document.createElement('div'),title=document.createElement('h2'),detail=document.createElement('p');
+   title.textContent=run.preview?'Preview retest':'Retest';
+   detail.textContent=new Date(run.createdAt).toLocaleString();copy.append(title,detail);row.append(copy);
+   const count=document.createElement('span');count.textContent=run.count+' selected '+(run.count===1?'item':'items');row.append(count);
+   const state=document.createElement('span');state.className='run-state';state.textContent=run.status;row.append(state);
+   const actions=document.createElement('div');actions.className='run-actions';row.append(actions);
+   if(run.report){const a=document.createElement('a');a.href=run.report;a.textContent='Open report';actions.append(a);}
+   if(run.build){const a=document.createElement('a');a.href='/jenkins/job/livelabs-qa-engine/'+run.build+'/';a.textContent='Jenkins #'+run.build;actions.append(a);}
+   container.append(row);
+  }
+ }catch{document.querySelector('#status').textContent='Retest status is unavailable. Refresh or check Jenkins.';}
+}
+refresh();setInterval(()=>{if(!document.hidden)refresh()},15000);
+</script></html>

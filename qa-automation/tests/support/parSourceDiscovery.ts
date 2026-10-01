@@ -40,11 +40,15 @@ export interface WorkshopSourceLinkLocation {
   sourceLine: number;
 }
 
-interface TutorialSource {
+export interface TutorialSource {
   sourceUrl: string;
   renderedUrl: string;
   labNumber?: number;
   label: string;
+}
+
+export interface WorkshopSourceDocument extends TutorialSource {
+  text: string;
 }
 
 interface WorkshopManifest {
@@ -187,6 +191,26 @@ export async function locateWorkshopSourceLinks(
   return locations;
 }
 
+export async function loadWorkshopSourceDocuments(page: Page): Promise<{ documents: WorkshopSourceDocument[]; scanErrors: ParSourceScanError[] }> {
+  const scanErrors: ParSourceScanError[] = [];
+  const tutorials = await discoverTutorialSources(page, scanErrors);
+  const documents: WorkshopSourceDocument[] = [];
+
+  await mapWithConcurrency(tutorials, discoveryConcurrency(), async (tutorial) => {
+    try {
+      const text = await fetchSourceText(page, tutorial.sourceUrl);
+      if (!text.trim()) throw new Error("The source page is empty.");
+      documents.push({ ...tutorial, text });
+    } catch (error) {
+      scanErrors.push({ page_type: "workshop-source", page_url: sanitizeSourceUrl(tutorial.renderedUrl),
+        source_file_url: sanitizeSourceUrl(tutorial.sourceUrl), label: tutorial.label, error: safeError(error) });
+    }
+  });
+
+  if (!tutorials.length && !scanErrors.length) scanErrors.push({ page_type: "workshop-source", page_url: sanitizeSourceUrl(page.url()), label: "Instructions source", error: "No published Markdown source could be located. The workshop may still work; source checks could not run." });
+  return { documents: documents.sort((left, right) => left.sourceUrl.localeCompare(right.sourceUrl)), scanErrors };
+}
+
 export function extractAuthorEmailsFromMarkdown(text: string): string[] {
   const lines = text.split(/\r?\n/);
   const emails = new Set<string>();
@@ -312,14 +336,17 @@ async function fetchManifest(page: Page, manifestUrl: string): Promise<WorkshopM
   }
 }
 
-async function discoverTutorialSources(page: Page): Promise<TutorialSource[]> {
+async function discoverTutorialSources(page: Page, scanErrors?: ParSourceScanError[]): Promise<TutorialSource[]> {
   const tutorials = new Map<string, TutorialSource>();
 
   for (const frame of page.frames()) {
     const workshopUrl = safeUrl(frame.url());
     if (!workshopUrl || !shouldTryManifest(workshopUrl)) continue;
     const manifestUrl = resolveManifestUrl(workshopUrl);
-    const manifest = await fetchManifest(page, manifestUrl).catch(() => undefined);
+    const manifest = await fetchManifest(page, manifestUrl).catch((error) => {
+      scanErrors?.push({ page_type: "workshop-manifest", page_url: sanitizeSourceUrl(frame.url()), source_file_url: sanitizeSourceUrl(manifestUrl), label: "Workshop manifest", error: safeError(error) });
+      return undefined;
+    });
     if (!manifest || !Array.isArray(manifest.tutorials)) continue;
 
     for (const [index, tutorial] of manifest.tutorials.entries()) {

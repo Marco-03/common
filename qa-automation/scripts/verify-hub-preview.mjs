@@ -1,0 +1,114 @@
+import { chromium } from "@playwright/test";
+import assert from "node:assert/strict";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+const browser = await chromium.launch({ headless: true, channel: "chrome" });
+const base = "http://127.0.0.1:4175";
+const errors = [];
+async function verifyNavigation(page) {
+  const sizes = await page.locator('.review-nav a, .nav-actions a, .hub-nav a').evaluateAll((links) => links.map((link) => {
+    const rect = link.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  }));
+  assert.ok(sizes.length >= 3);
+  assert.ok(sizes.every((size) => Math.abs(size.width - sizes[0].width) < 1 && size.height === 40), 'Navigation buttons have matching dimensions');
+}
+try {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page.on("pageerror", (error) => errors.push(error.message));
+  const summary = await (await page.request.get(base + '/summary.json')).json();
+  const example = summary.catalogItems.find((item) => item.issues.some((issue) => issue.code === 'MARKDOWN_FORMATTING'));
+  await page.goto(example.catalogItem.normalized_href);
+  await page.locator('article').first().screenshot({ path: 'artifacts/full-report-preview/example-evidence.png' });
+  assert.equal(spawnSync(process.execPath, ['scripts/build-report-preview.mjs']).status, 0);
+  await page.goto(base);
+  await page.getByText("Design preview |", { exact: false }).waitFor();
+  await page.screenshot({ path: "artifacts/full-report-preview/home-desktop.png", fullPage: true });
+  await page.goto(base + "/summary.html");
+  await verifyNavigation(page);
+  await page.getByRole('link', { name: 'All runs', exact: true }).click();
+  await page.getByRole('heading', { name: 'Overall regression runs', exact: true }).waitFor();
+  await page.locator('.run-row').first().click();
+  await verifyNavigation(page);
+  await page.getByRole('link', { name: 'Retest List', exact: false }).click();
+  await verifyNavigation(page);
+  await page.getByRole('link', { name: 'All runs', exact: true }).click();
+  await page.getByRole('link', { name: 'Open latest', exact: true }).click();
+  await verifyNavigation(page);
+  assert.equal((await page.request.get(base + '/regression/latest/hub-ui.css')).headers()['content-type'], 'text/css');
+  await page.goto(base + '/summary.html');
+  for (const width of [1440, 1280, 1024]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const aligned = await page.locator('[data-item-row][data-status="partial"]').first().evaluate((row) => {
+      const status = row.querySelector('.result-summary > span:first-child .pill').getBoundingClientRect();
+      const title = row.querySelector('.result-item').getBoundingClientRect();
+      const header = row.closest('.result-table').querySelector('.result-table-head > :nth-child(2)').getBoundingClientRect();
+      return title.left - status.right >= 16 && Math.abs(title.left - header.left) < 1;
+    });
+    assert.ok(aligned, `Status/title spacing and column alignment at ${width}px`);
+  }
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.locator('[data-item-row][data-status="partial"]').first().locator('summary').first().screenshot({ path: 'artifacts/full-report-preview/alignment-row.png' });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.locator("[data-item-row] summary").first().click();
+  const add = page.locator("[data-review-action]").first();
+  await add.waitFor();
+  if ((await add.getAttribute("aria-pressed")) !== "true") {
+    await page.waitForFunction(() => !document.querySelector("[data-review-action]").disabled);
+    await add.click();
+  }
+  await page.evaluate(() => window.qaHub.flush());
+  assert.equal(await add.isDisabled(), false, 'Selected retest action remains reversible');
+  assert.match(await add.innerText(), /Remove from (?:PAR )?Retest/);
+  await add.click();
+  await page.evaluate(() => window.qaHub.flush());
+  assert.equal(await add.getAttribute('aria-pressed'), 'false');
+  await add.click();
+  await page.evaluate(() => window.qaHub.flush());
+  assert.equal(await add.getAttribute('aria-pressed'), 'true');
+  await page.screenshot({ path: "artifacts/full-report-preview/report-desktop.png", fullPage: true });
+  const second = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await second.goto(base + "/retest-list.html");
+  await second.waitForFunction(() => document.querySelector("[data-list-count]").textContent !== "0");
+  assert.equal(await second.locator('#retest-queue-note').isVisible(), true);
+  assert.match(await second.locator('#retest-queue-note').innerText(), /one run at a time/);
+  assert.equal(await second.getByRole('button', { name: 'Run Retest List' }).getAttribute('aria-describedby'), 'retest-queue-note');
+  await verifyNavigation(second);
+  assert.equal(await second.getByRole('button', { name: 'Copy Payload' }).isVisible(), false);
+  assert.equal(await second.locator('header > a').count(), 0, 'No stray header link');
+  await second.screenshot({ path: 'artifacts/full-report-preview/retest-list-desktop.png', fullPage: true });
+  await second.setViewportSize({ width: 390, height: 844 });
+  await verifyNavigation(second);
+  assert.equal(await second.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await second.screenshot({ path: 'artifacts/full-report-preview/retest-list-mobile.png', fullPage: true });
+  await second.setViewportSize({ width: 1440, height: 1000 });
+  await second.getByRole("button", { name: "Run Retest List" }).click();
+  await second.getByText("Preview retest queued.", { exact: false }).waitFor();
+  await second.goto(base + "/retest-runs.html");
+  await second.getByText("no scan executed", { exact: false }).first().waitFor();
+  await verifyNavigation(second);
+  await second.screenshot({ path: "artifacts/full-report-preview/retests-desktop.png", fullPage: true });
+  await second.setViewportSize({ width: 390, height: 844 });
+  await verifyNavigation(second);
+  assert.equal(await second.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await second.screenshot({ path: 'artifacts/full-report-preview/retests-mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "artifacts/full-report-preview/report-mobile.png" });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Mobile horizontal overflow");
+  assert.equal(await page.locator('.result-summary').first().evaluate((element) => element.getBoundingClientRect().right > innerWidth), false, "Mobile row is clipped");
+  const links = await page.locator('.affected-item-row a').evaluateAll((anchors) => anchors.map((anchor) => anchor.href));
+  for (const url of links.filter((url) => url.startsWith(base))) assert.equal((await page.request.get(url)).status(), 200);
+  await page.locator('[data-item-search]').fill('twelve findings');
+  const twelve = page.locator('[data-item-row]:visible');
+  await twelve.locator('summary').first().click();
+  assert.equal(await twelve.locator('.affected-item-row').count(), 12);
+  await page.locator('[data-item-search]').fill(example.catalogItem.title);
+  const evidenceRow = page.locator('[data-item-row]:visible');
+  await evidenceRow.locator('summary').first().click();
+  await evidenceRow.getByRole('link', { name: 'Highlighted issue', exact: true }).first().click();
+  assert.equal(await page.locator('dialog').isVisible(), true);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  assert.equal(await page.locator('dialog').isVisible(), false);
+  assert.deepEqual(errors, []);
+  console.log("Preview verified: shared list across sessions, retest queue, local lab links, desktop/mobile layouts.");
+} finally { await browser.close(); }

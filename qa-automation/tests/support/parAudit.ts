@@ -154,13 +154,17 @@ export function extractParUrlsFromText(value: string): string[] {
   const urls = new Set<string>();
 
   for (const match of matches) {
-    const candidate = trimUrlPunctuation(match);
+    const candidate = stripCustomVideoDisplaySuffix(trimUrlPunctuation(match));
     if (isObviousParPlaceholder(candidate)) continue;
     const parsed = parseParUrl(candidate);
     if (parsed) urls.add(parsed.url.toString());
   }
 
   return Array.from(urls);
+}
+
+function stripCustomVideoDisplaySuffix(value: string): string {
+  return value.replace(/(\.(?:mp4|webm|mov|m4v|ogv)):(?:small|medium|large|full|wide)(?=$|[?#])/i, "$1");
 }
 
 export function mergeParCandidates(candidates: ParCandidate[]): ParCandidate[] {

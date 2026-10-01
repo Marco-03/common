@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { writeSummaryFiles } from "./reporters/root-summary-reporter.mjs";
+import { writeSummaryFiles, reportHistoryPageHtml } from "./reporters/root-summary-reporter.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = path.join(projectRoot, "artifacts", "full-report-preview");
@@ -34,7 +34,7 @@ function item({ id, title, type = "workshop", issues = [], sections = ["Generate
     key: `${type}:${id}`,
     status: failed ? "failed" : "passed",
     issueCount: issues.length,
-    counts: { total: 3, passed: failed ? 2 : 3, failed: failed ? 1 : 0, unexpected: failed ? 1 : 0 },
+    counts: { total: sections.length, passed: sections.length - (failed ? 1 : 0), failed: failed ? 1 : 0, unexpected: failed ? 1 : 0 },
     sections,
     authorNames: [],
     catalogItem: { type, id: String(id), title, absolute_url: url, normalized_href: url },
@@ -134,7 +134,82 @@ const catalogItems = [
       }],
     }],
   }),
-  item({ id: 101, type: "livestack", title: "Autonomous AI Lakehouse - The PeakGear LiveStack" }),
+  item({
+    id: "DEMO-SOURCE",
+    title: "Preview example: Workshop source quality",
+    sections: ["Workshop Source Quality"],
+    issues: [{
+      code: "MARKDOWN_FORMATTING",
+      label: "Markdown formatting",
+      severity: "minor",
+      message: "One Markdown formatting problem was found.",
+      section: "Workshop Source Quality",
+      details: [{
+        label: "Space before closing **",
+        marker: "**",
+        text: "**Important: ** Select the compartment.",
+        suggestion: "Remove the space immediately before the closing **.",
+        location: "Lab 2: Configure the application / Task 2: Import the sample",
+        pageUrl: "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=2-configure",
+        sourceFileUrl: "https://livelabs.oracle.com/cdn/example/lab-2.md",
+        sourceLine: 18,
+        labTitle: "Lab 2: Configure the application",
+        labNumber: 2,
+        section: "Task 2: Import the sample",
+      }],
+    }, {
+      code: "WRITING_GRAMMAR",
+      label: "Grammar or punctuation",
+      severity: "minor",
+      message: "One repeated word was found.",
+      section: "Workshop Source Quality",
+      details: [{
+        label: "Repeated word",
+        marker: "the the",
+        text: "Open the the application.",
+        suggestion: "Remove one repeated \"the\".",
+        location: "Lab 2: Configure the application / Task 2: Import the sample",
+        pageUrl: "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=2-configure",
+        sourceFileUrl: "https://livelabs.oracle.com/cdn/example/lab-2.md",
+        sourceLine: 27,
+        labTitle: "Lab 2: Configure the application",
+        labNumber: 2,
+        section: "Task 2: Import the sample",
+      }],
+    }, {
+      code: "POSSIBLE_TYPO",
+      label: "Possible typo",
+      severity: "minor",
+      message: "One word may be misspelled.",
+      section: "Workshop Source Quality",
+      details: [{
+        label: "Possible typo: sentnce",
+        marker: "sentnce",
+        text: "Enter the sample sentnce.",
+        suggestion: "Review \"sentnce\" and replace it with \"sentence\" if that is the intended word.",
+        location: "Lab 2: Configure the application / Task 2: Import the sample",
+        pageUrl: "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=2-configure",
+        sourceFileUrl: "https://livelabs.oracle.com/cdn/example/lab-2.md",
+        sourceLine: 32,
+        labTitle: "Lab 2: Configure the application",
+        labNumber: 2,
+        section: "Task 2: Import the sample",
+      }],
+    }],
+  }),
+  item({
+    id: 101,
+    type: "livestack",
+    title: "Autonomous AI Lakehouse - The PeakGear LiveStack",
+    sections: ["Generated LiveStack Overview"],
+    issues: [{
+      code: "AUTHENTICATION_REQUIRED",
+      label: "QA sign-in required - not tested",
+      severity: "minor",
+      message: "The QA browser reached Oracle Sign In before it could inspect this LiveStack.",
+      section: "Generated LiveStack Overview",
+    }],
+  }),
   item({ id: 3319, type: "sprint", title: "Oracle Database Developer Sprint", sections: ["Generated Sprint and Event Page"] }),
   item({ id: 88, type: "event", title: "Oracle LiveLabs Community Event", sections: ["Generated Sprint and Event Page"] }),
   ...[
@@ -155,6 +230,35 @@ const catalogItems = [
   ].map(([id, title]) => item({ id, title })),
 ];
 
+catalogItems.push(item({ id: 99990, title: "Preview example - incomplete lab coverage", issues: [{ code: "SOURCE_SCAN_INCOMPLETE", label: "Some instruction pages could not be checked", severity: "minor", message: "The workshop opened. Two instruction pages were checked, but Getting Started could not be read.", details: [{ label: "Getting Started", location: "Getting Started", error: "Source returned HTTP 404. Check the manifest filename.", suggestion: "Restore the source or correct its manifest filename." }] }] }));
+
+catalogItems.push(item({ id: 99991, title: "Preview example - twelve findings", issues: [{ code: "POSSIBLE_TYPO", label: "Possible typo", severity: "minor", message: "Twelve example findings, all visible.", details: Array.from({ length: 12 }, (_, index) => ({ label: `Finding ${index + 1}`, marker: "sentnce", text: "Enter the sentnce.", sourceLine: index + 1, location: `Example lab / Task ${index + 1}`, suggestion: "Review sentence as a possible correction." })) }] }));
+
+// All demonstration destinations are local fixtures, never invented public lab URLs.
+const escapeHtml = (value) => String(value || "").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+fs.mkdirSync(outputDir, { recursive: true });
+for (const entry of catalogItems) {
+  entry.catalogItem.title = "Example: " + entry.catalogItem.title;
+  const fixture = `demo-${entry.catalogItem.type}-${entry.catalogItem.id}.html`;
+  const url = `http://127.0.0.1:4175/${fixture}`;
+  const details = [];
+  for (const issue of entry.issues) {
+    const records = Array.isArray(issue.details) ? issue.details : Object.values(issue.details || {}).find(Array.isArray) || [];
+    for (const record of records) {
+      if (!record || typeof record !== "object") continue;
+      record.pageUrl = url;
+      record.page_url = url;
+      record.sourceFileUrl = url;
+      if (record.sources) for (const source of record.sources) { source.page_url = url; source.source_file_url = url; }
+      details.push(record);
+    }
+  }
+  entry.catalogItem.normalized_href = url;
+  entry.catalogItem.absolute_url = url;
+  fs.writeFileSync(path.join(outputDir, fixture), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Local example lab</title><style>body{font:16px Arial;margin:32px;line-height:1.6;max-width:1000px}article{border-left:4px solid #c62828;padding:12px 20px;margin:20px 0;background:#fff4f1}code{overflow-wrap:anywhere}h1{font-size:26px}a{color:#0067a8}</style><a href="summary.html">Back to report</a><p><strong>Local demonstration only. These are not verified LiveLabs defects.</strong></p><h1>${escapeHtml(entry.catalogItem.title)}</h1>${details.map((detail) => `<article><h2>${escapeHtml(detail.location || detail.labTitle || detail.label || "Example location")}</h2><p>${escapeHtml(detail.text || detail.marker || detail.label || detail.alt || detail.object_name)}</p><code>${escapeHtml(detail.url || detail.src || detail.error)}</code><p>${escapeHtml(detail.suggestion)}</p></article>`).join("") || '<p>This example illustrates a check that could not complete. No specific content defect is asserted here.</p>'}</html>`);
+}
+
+const totalChecks = catalogItems.reduce((count, entry) => count + entry.tests.length, 0);
 const issueCounts = new Map();
 const issueLabels = new Map();
 for (const catalogItem of catalogItems) {
@@ -170,6 +274,7 @@ const startedAt = new Date(now.getTime() - 32 * 60_000);
 const summary = {
   runId: "local-manager-preview",
   previewMode: true,
+  scope: { label: "Demonstration catalog" },
   attemptId: "local-preview",
   reportChannel: "regression",
   runType: "regression",
@@ -178,10 +283,10 @@ const summary = {
   startedAt: startedAt.toISOString(),
   endedAt: now.toISOString(),
   durationMs: now.getTime() - startedAt.getTime(),
-  configuredTests: catalogItems.length * 3,
+  configuredTests: totalChecks,
   counts: {
-    total: catalogItems.length * 3,
-    passed: catalogItems.length * 3 - failedItems,
+    total: totalChecks,
+    passed: totalChecks - failedItems,
     failed: failedItems,
     skipped: 0,
     timedOut: 0,
@@ -191,10 +296,19 @@ const summary = {
   },
   failureCategories: Array.from(issueCounts, ([code, count]) => ({ code, count, label: issueLabels.get(code) || code })),
   catalogItems,
-  failures: [],
+  failures: fs.existsSync(path.join(outputDir, "example-evidence.png")) ? (() => {
+    const entry = catalogItems.find((entry) => entry.issues.some((issue) => issue.code === "MARKDOWN_FORMATTING"));
+    return entry ? [{ ...entry.tests[0], catalogItem: entry.catalogItem, titlePath: [entry.catalogItem.title], issues: entry.issues, errors: [], steps: [], attachments: [{ name: "highlighted-issue-screenshot", path: path.join(outputDir, "example-evidence.png"), contentType: "image/png" }] }] : [];
+  })() : [],
   sections: [],
 };
 
 fs.mkdirSync(outputDir, { recursive: true });
 writeSummaryFiles(outputDir, summary, path.join(projectRoot, "artifacts"));
+const history = { report_channel: "regression", runs: [{
+  ...summary, href: "runs/local-manager-preview/summary.html",
+  itemsTested: catalogItems.length, issuesFound: failedItems,
+}] };
+fs.writeFileSync(path.join(outputDir, "history.html"), reportHistoryPageHtml(history).replace('<main>', '<main><p><strong>Design preview only. This is a demonstration run, not a LiveLabs scan.</strong></p>'));
+fs.writeFileSync(path.join(outputDir, "retest-history.html"), reportHistoryPageHtml({ report_channel: "retest", runs: [] }));
 console.log(path.join(outputDir, "summary.html"));

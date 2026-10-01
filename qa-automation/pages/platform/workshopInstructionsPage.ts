@@ -6,6 +6,7 @@ import {
   attachContentQualityIssues,
   collectTextDefectDetails,
   contentQualityIssue,
+  recordLinkCoverage,
   type ContentQualityIssue,
 } from "../../tests/support/contentQuality.js";
 import { locateWorkshopSourceLinks } from "../../tests/support/parSourceDiscovery.js";
@@ -72,9 +73,11 @@ export class WorkshopInstructionsPage extends BasePage {
     issues.push(...(await this.collectBrokenLinkIssues(contentBody, options)));
 
     await attachContentQualityIssues(testInfo, issues, options.contextName);
-    if (issues.some((issue) => issue.code === "BROKEN_VISIBLE_LINK" || issue.code === "BROKEN_VISIBLE_IMAGE")) {
-      await testInfo.attach("highlighted-issue-screenshot", {
-        body: await this.page.screenshot({ fullPage: true }),
+    const marked = contentBody.locator("[data-qa-evidence]:visible");
+    for (let index = 0; index < await marked.count(); index++) {
+      await marked.nth(index).scrollIntoViewIfNeeded();
+      await testInfo.attach(`highlighted-issue-screenshot-${index + 1}`, {
+        body: await this.page.screenshot({ fullPage: false }),
         contentType: "image/png",
       });
     }
@@ -191,6 +194,7 @@ export class WorkshopInstructionsPage extends BasePage {
           (!element.complete || element.naturalWidth === 0 || element.naturalHeight === 0),
       );
       for (const image of broken) {
+        image.setAttribute("data-qa-evidence", "image");
         image.style.setProperty("outline", "4px solid #c62828", "important");
         image.style.setProperty("outline-offset", "3px", "important");
         image.style.setProperty("background-color", "#fff1f0", "important");
@@ -320,9 +324,11 @@ export class WorkshopInstructionsPage extends BasePage {
     options: InstructionContentQualityOptions,
   ): Promise<ContentQualityIssue[]> {
     const candidates = await this.collectVisibleLinks(contentBody);
-    const limit = options.linkLimit ?? 50;
+    const configuredLimit = Number(process.env.QA_CONTENT_LINK_LIMIT || 0);
+    const limit = options.linkLimit ?? (Number.isInteger(configuredLimit) && configuredLimit >= 0 ? configuredLimit : 0);
     const linksToCheck = limit === 0 ? candidates : candidates.slice(0, limit);
     const brokenLinks: BrokenLinkRecord[] = [];
+    const unverified: BrokenLinkRecord[] = [];
 
     for (const link of linksToCheck) {
       try {
@@ -330,16 +336,18 @@ export class WorkshopInstructionsPage extends BasePage {
 
         if (status >= 400 && !AUTH_OR_RATE_LIMIT_STATUSES.has(status)) {
           brokenLinks.push({ ...link, status });
-        }
+        } else if (AUTH_OR_RATE_LIMIT_STATUSES.has(status)) unverified.push({ ...link, status });
       } catch (error) {
-        brokenLinks.push({
+        unverified.push({
           ...link,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     }
 
-    if (brokenLinks.length === 0) return [];
+    recordLinkCoverage(linksToCheck.length, candidates.length, unverified.length);
+    const coverageIssues = unverified.length ? [contentQualityIssue("LINK_CHECK_INCOMPLETE", "Some links could not be verified", "minor", "These links need another check because authentication, rate limits, or a network failure prevented verification. They are not confirmed broken.", unverified)] : [];
+    if (brokenLinks.length === 0) return coverageIssues;
     await this.highlightBrokenLinks(contentBody, brokenLinks);
     const sourceLocations = await locateWorkshopSourceLinks(
       this.page,
@@ -374,6 +382,7 @@ export class WorkshopInstructionsPage extends BasePage {
           brokenLinks: locatedBrokenLinks,
         },
       ),
+      ...coverageIssues,
     ];
   }
 
@@ -386,6 +395,7 @@ export class WorkshopInstructionsPage extends BasePage {
       for (const anchor of broken) {
         if (!(anchor instanceof HTMLElement)) continue;
         anchor.style.setProperty("outline", "4px solid #c62828", "important");
+        anchor.setAttribute("data-qa-evidence", "link");
         anchor.style.setProperty("outline-offset", "3px", "important");
         anchor.style.setProperty("background-color", "#fff1f0", "important");
       }
@@ -401,7 +411,10 @@ export class WorkshopInstructionsPage extends BasePage {
         timeout: 15_000,
       });
 
-      return headResponse.status();
+      const status = headResponse.status();
+      await headResponse.dispose();
+      if (status >= 400) throw new Error("Confirm unsuccessful HEAD with GET");
+      return status;
     } catch {
       const getResponse = await this.page.request.get(url, {
         failOnStatusCode: false,
@@ -409,7 +422,9 @@ export class WorkshopInstructionsPage extends BasePage {
         timeout: 15_000,
       });
 
-      return getResponse.status();
+      const status = getResponse.status();
+      await getResponse.dispose();
+      return status;
     }
   }
 

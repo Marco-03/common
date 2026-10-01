@@ -30,22 +30,37 @@
 <body>
   <header>
     <h1>LiveLabs QA</h1>
-    <p>Private execution and report access</p>
+    <p>Workshop quality and scan coverage</p>
   </header>
   <main>
+    <section aria-label="Latest scan" style="padding:0 0 24px;border-bottom:1px solid #cbd5df;margin-bottom:24px">
+      <h2>Latest scan</h2>
+      <p id="latest-state" role="status">Loading latest scan...</p>
+      <p id="latest-coverage"></p>
+      <a href="/regression/latest/summary.html">Open latest report</a>
+    </section>
     <section class="status" aria-label="QA areas">
       <div class="entry">
         <h2>Overall regression</h2>
-        <p>All catalog, content, image, routing, asset, and PAR link findings in one report.</p>
+        <p>Full and sample catalog scans.</p>
         <a href="/regression/">Open QA reports</a>
       </div>
       <div class="entry">
-        <h2>Jenkins</h2>
-        <p>Operator-only schedules, manual runs, targeted item reruns, logs, and JUnit results.</p>
-        <a href="/jenkins/">Open Jenkins</a>
+        <h2>Retests</h2>
+        <p>Selected items, queued checks, and retest results.</p>
+        <a href="/retest-runs.html">Open retest runs</a>
       </div>
     </section>
-    <p class="note">Reports show each issue, its workshop author contacts, and the exact checks that ran. Operators use Jenkins to start a full or targeted scan.</p>
+    <details class="note"><summary>Advanced</summary><p><a href="/jenkins/job/livelabs-overall-regression/build?delay=0sec">Start a full or sample scan</a></p><a href="/jenkins/">Open Jenkins</a></details>
   </main>
+  <script>
+    fetch('/regression/latest/summary.json', {cache:'no-store'}).then(response=>{if(!response.ok)throw new Error();return response.json()}).then(summary=>{
+      const items=summary.catalogItems||[];
+      const passed=items.filter(item=>item.status==='passed').length;
+      const state=summary.completion?.state==='completed'?'Completed':'Incomplete';
+      document.querySelector('#latest-state').textContent=(summary.previewMode?'Design preview | ':'')+state+' | '+new Date(summary.startedAt).toLocaleString()+' | '+(summary.scope?.label||'Scope not recorded');
+      document.querySelector('#latest-coverage').textContent=items.length+' catalog items in report | '+passed+' passed | '+(items.length-passed)+' need attention | '+summary.counts.total+' checks recorded'+(summary.configuredTests?' / '+summary.configuredTests+' planned':'');
+    }).catch(()=>{document.querySelector('#latest-state').textContent='Latest scan unavailable. Open the reports to review saved runs.';});
+  </script>
 </body>
 </html>

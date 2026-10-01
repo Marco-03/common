@@ -32,6 +32,8 @@
   "devDependencies": {
     "@playwright/test": "^1.58.0",
     "@types/node": "^25.5.2",
+    "cspell-lib": "^10.3.5",
+    "markdown-it": "^14.2.0",
     "typescript": "^6.0.2"
   }
 }
