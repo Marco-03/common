@@ -31,6 +31,7 @@ services:
     volumes:
       - jenkins_home:/var/jenkins_home
       - qa_reports:/var/qa-reports
+      - ${QA_SOURCE_HOST_PATH:-/opt/livelabs-qa/vm-source-repo}:/opt/qa-source:ro
     shm_size: 2gb
     security_opt:
       - no-new-privileges:true
