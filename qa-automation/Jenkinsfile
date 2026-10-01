@@ -11,8 +11,12 @@ def runProfile() {
   return hasText(params.RUN_PROFILE) ? params.RUN_PROFILE.toString().trim() : "pr-slice"
 }
 
+def isRetestRun() {
+  return params.RETEST_MODE?.toString() == "true"
+}
+
 def reportChannel() {
-  return hasText(params.RETEST_SELECTION) ? "retest" : "regression"
+  return isRetestRun() ? "retest" : "regression"
 }
 
 def sourceCheckoutConfig() {
@@ -39,8 +43,9 @@ def shouldCreateAuthState() {
 def qaRuntimeEnv() {
   def profile = runProfile()
   def workerCount = numericValue(params.TEST_WORKERS, "5")
+  def retestSelection = isRetestRun() ? (params.RETEST_SELECTION ?: "") : ""
   def envValues = [
-    "QA_RETEST_SELECTION=${params.RETEST_SELECTION ?: ''}",
+    "QA_RETEST_SELECTION=${retestSelection}",
     "QA_RUN_SCOPE=${hasText(params.CATALOG_ITEM_IDS) ? 'Selected items' : hasText(params.CATALOG_MAX_ITEMS) && params.CATALOG_MAX_ITEMS != '0' ? 'Sample run' : profile == 'nightly-full' ? 'Full catalog requested' : 'Sample run'}",
     "CI=true",
     "QA_HEADED=false",
@@ -121,7 +126,7 @@ def catalogIndexCommand() {
 
 def generatedRunCommand(runName) {
   return [
-    hasText(params.RETEST_SELECTION) ? "node ./scripts/run-retest.mjs" : "node ./scripts/qa.mjs tests/platform/generated tests/platform/par/catalogParLinks.spec.ts",
+    isRetestRun() ? "node ./scripts/run-retest.mjs" : "node ./scripts/qa.mjs tests/platform/generated tests/platform/par/catalogParLinks.spec.ts",
     "--output artifacts/jenkins/${runName}/test-results",
     "--junit on",
     "--junit-file artifacts/jenkins/${runName}/junit.xml",
@@ -192,6 +197,7 @@ pipeline {
     string(name: "CATALOG_RETRIES", defaultValue: "3", description: "Catalog crawler retry count.")
     string(name: "CATALOG_RETRY_DELAY_MS", defaultValue: "5000", description: "Delay between catalog crawler retries.")
     string(name: "CONTENT_LINK_LIMIT", defaultValue: "0", description: "Visible content links checked per generated page. Default 0 checks all links.")
+    string(name: "RETEST_MODE", defaultValue: "", description: "Internal QA Hub retest marker; leave empty for normal runs.")
     string(name: "RETEST_SELECTION", defaultValue: "", description: "Managed QA Hub retest selection; leave empty for normal runs.")
     string(name: "PAR_DISCOVERY_CONCURRENCY", defaultValue: "3", description: "Workshop source files fetched concurrently inside each PAR catalog item.")
     string(name: "PAR_SOURCE_TIMEOUT_MS", defaultValue: "45000", description: "Timeout for each workshop manifest or Markdown source request.")

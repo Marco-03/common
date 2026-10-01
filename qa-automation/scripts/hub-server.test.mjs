@@ -61,7 +61,39 @@ test("production submits saved checks, not browser-supplied test commands", asyn
     assert.match(calls[1].options.headers.cookie, /JSESSIONID=test/);
     const params = calls[1].options.body;
     assert.equal(params.get("CONTENT_LINK_LIMIT"), "0");
+    assert.equal(params.get("RETEST_MODE"), "true");
     assert.deepEqual(JSON.parse(Buffer.from(params.get("RETEST_SELECTION"), "base64")), [{ testPath: "tests/platform/generated/livestackResources.generated.spec.ts", testName: "Saved exact check" }]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previousSecret === undefined) delete process.env.QA_JENKINS_SECRET_FILE; else process.env.QA_JENKINS_SECRET_FILE = previousSecret;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("retest history finds a build after Jenkins removes its queue record", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "qa-hub-progress-test-"));
+  const reports = path.join(directory, "reports");
+  const selection = JSON.stringify([{ testPath: "tests/platform/generated/workshopOverview.generated.spec.ts", testName: "Saved exact check" }]);
+  fs.mkdirSync(path.join(reports, "retest"), { recursive: true });
+  fs.writeFileSync(path.join(reports, "retest", "history.json"), JSON.stringify({ runs: [{ runId: "retest-result", attemptId: "jenkins-livelabs-qa-engine-73-catalog-slice" }] }));
+  fs.writeFileSync(path.join(directory, "state.json"), JSON.stringify({ retest: {}, runs: [{ id: "retest", createdAt: "2026-10-01T12:00:00.000Z", count: 1, status: "Queued", queue: 91, selection }] }));
+  const previousSecret = process.env.QA_JENKINS_SECRET_FILE;
+  process.env.QA_JENKINS_SECRET_FILE = path.join(directory, "secret");
+  fs.writeFileSync(process.env.QA_JENKINS_SECRET_FILE, "test-only-password");
+  const server = createHub({ directory, reports, jenkins: "http://jenkins.test/jenkins", fetcher: async (url) => {
+    if (url.endsWith("/queue/item/91/api/json")) return new Response("missing", { status: 404 });
+    if (url.includes("/job/livelabs-qa-engine/api/json?")) {
+      return new Response(JSON.stringify({ builds: [{ number: 73, timestamp: Date.parse("2026-10-01T12:00:01.000Z"), actions: [{ parameters: [{ name: "RETEST_SELECTION", value: Buffer.from(selection).toString("base64") }] }] }] }));
+    }
+    if (url.endsWith("/job/livelabs-qa-engine/73/api/json")) return new Response(JSON.stringify({ building: false, result: "UNSTABLE" }));
+    throw new Error(`Unexpected URL ${url}`);
+  } });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const [run] = await (await fetch(`http://127.0.0.1:${server.address().port}/api/hub/runs`)).json();
+    assert.equal(run.status, "Completed with issues");
+    assert.equal(run.build, 73);
+    assert.equal(run.report, "/retest/runs/retest-result/summary.html");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     if (previousSecret === undefined) delete process.env.QA_JENKINS_SECRET_FILE; else process.env.QA_JENKINS_SECRET_FILE = previousSecret;

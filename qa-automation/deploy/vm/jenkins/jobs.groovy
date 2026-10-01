@@ -28,6 +28,7 @@ pipelineJob("livelabs-qa-engine") {
     stringParam("CATALOG_RETRIES", "3", "Catalog crawler retries")
     stringParam("CATALOG_RETRY_DELAY_MS", "5000", "Catalog retry delay")
     stringParam("CONTENT_LINK_LIMIT", "0", "Visible links checked per page; 0 checks all")
+    stringParam("RETEST_MODE", "", "Internal QA Hub retest marker")
     stringParam("RETEST_SELECTION", "", "Managed QA Hub retest selection")
     stringParam("PAR_DISCOVERY_CONCURRENCY", "3", "Parallel source files per item")
     stringParam("PAR_SOURCE_TIMEOUT_MS", "45000", "Source fetch timeout")

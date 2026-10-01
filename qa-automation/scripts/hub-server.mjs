@@ -57,20 +57,37 @@ export function createHub({ directory, preview = false, reports = "/var/qa-repor
       if (preview) { run.status = "Preview only - no scan executed"; run.finished = true; continue; }
       try {
         if (!run.build) {
-          const queue = await (await jenkinsRequest(`/queue/item/${run.queue}/api/json`)).json();
-          if (queue.cancelled) { run.status = "Cancelled"; run.finished = true; }
-          if (queue.executable) run.build = queue.executable.number;
+          try {
+            const queue = await (await jenkinsRequest(`/queue/item/${run.queue}/api/json`)).json();
+            if (queue.cancelled) { run.status = "Cancelled"; run.finished = true; }
+            if (queue.executable) run.build = queue.executable.number;
+          } catch {
+            const selection = Buffer.from(run.selection || "").toString("base64");
+            const query = new URLSearchParams({ tree: "builds[number,result,building,timestamp,actions[parameters[name,value]]]" });
+            const job = await (await jenkinsRequest(`/job/livelabs-qa-engine/api/json?${query}`)).json();
+            const startedAt = Date.parse(run.createdAt) || 0;
+            const match = (job.builds || []).find((build) => {
+              const parameters = build.actions?.flatMap((action) => action.parameters || []) || [];
+              return Number(build.timestamp || 0) >= startedAt - 60000 && parameters.some((parameter) => parameter.name === "RETEST_SELECTION" && parameter.value === selection);
+            });
+            if (match) run.build = match.number;
+            else run.status = "Waiting for Jenkins";
+          }
         }
         if (run.build) {
           const build = await (await jenkinsRequest(`/job/livelabs-qa-engine/${run.build}/api/json`)).json();
           run.status = build.building ? "Running" : ({ SUCCESS: "Completed", UNSTABLE: "Completed with issues", ABORTED: "Cancelled", FAILURE: "Run failed" }[build.result] || "Queued");
           run.finished = !build.building && Boolean(build.result);
-          const historyFile = path.join(reports, "retest", "history.json");
-          if (fs.existsSync(historyFile)) {
+          for (const channel of ["retest", "regression"]) {
+            const historyFile = path.join(reports, channel, "history.json");
+            if (!fs.existsSync(historyFile)) continue;
             const history = JSON.parse(fs.readFileSync(historyFile, "utf8"));
             const entries = Array.isArray(history) ? history : history.runs || [];
             const match = entries.find((entry) => entry.attemptId?.includes(`-${run.build}-`));
-            if (match && /^[A-Za-z0-9._-]+$/.test(match.runId)) run.report = `/retest/runs/${match.runId}/summary.html`;
+            if (match && /^[A-Za-z0-9._-]+$/.test(match.runId)) {
+              run.report = `/${channel}/runs/${match.runId}/summary.html`;
+              break;
+            }
           }
         }
       } catch { run.status = "Status unavailable - check Jenkins"; }
@@ -114,7 +131,7 @@ export function createHub({ directory, preview = false, reports = "/var/qa-repor
             if (active) return send(res, 200, active);
             const run = { id: randomUUID(), createdAt: new Date().toISOString(), count: selected.ids.length, status: "Queued", preview, selection: JSON.stringify(selected) };
             if (!preview) {
-              const parameters = new URLSearchParams({ RUN_PROFILE: "manual-items", CATALOG_ITEM_IDS: selected.ids.join(","), CATALOG_MAX_PAGES: "250", CONTENT_LINK_LIMIT: "0", RETEST_SELECTION: Buffer.from(JSON.stringify(selected.checks)).toString("base64"), LIVELABS_USERNAME_CREDENTIAL_ID: "livelabs-username", LIVELABS_SECRET_CREDENTIAL_ID: "livelabs-secret", AUTH_TARGET_URL: process.env.QA_AUTH_TARGET_URL || "" });
+              const parameters = new URLSearchParams({ RUN_PROFILE: "manual-items", CATALOG_ITEM_IDS: selected.ids.join(","), CATALOG_MAX_PAGES: "250", CONTENT_LINK_LIMIT: "0", RETEST_MODE: "true", RETEST_SELECTION: Buffer.from(JSON.stringify(selected.checks)).toString("base64"), LIVELABS_USERNAME_CREDENTIAL_ID: "livelabs-username", LIVELABS_SECRET_CREDENTIAL_ID: "livelabs-secret", AUTH_TARGET_URL: process.env.QA_AUTH_TARGET_URL || "" });
               const response = await jenkinsRequest("/job/livelabs-qa-engine/buildWithParameters", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: parameters });
               const match = response.headers.get("location")?.match(/\/queue\/item\/(\d+)/);
               if (!match) throw new Error("Jenkins did not return a queue ID. Check Jenkins before submitting again.");
