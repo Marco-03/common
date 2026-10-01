@@ -97,7 +97,10 @@ export function createHub({ directory, preview = false, reports = "/var/qa-repor
             }
           }
         }
-      } catch { run.status = "Status unavailable - check Jenkins"; }
+      } catch (error) {
+        const message = String(error?.message || "Jenkins did not return a status.").replace(/\s+/g, " ").slice(0, 180);
+        run.status = "Status unavailable: " + message;
+      }
     }
     save();
     return state.runs;
