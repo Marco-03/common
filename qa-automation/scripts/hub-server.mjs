@@ -65,12 +65,18 @@ export function createHub({ directory, preview = false, reports = "/var/qa-repor
             const savedSelection = JSON.parse(run.selection || "{}");
             const checks = Array.isArray(savedSelection) ? savedSelection : savedSelection.checks;
             const selection = Buffer.from(JSON.stringify(checks || [])).toString("base64");
-            const job = await (await jenkinsRequest("/job/livelabs-qa-engine/api/json?tree=builds[number,result,building,timestamp,actions[parameters[name,value]]]")).json();
+            const job = await (await jenkinsRequest("/job/livelabs-qa-engine/api/json?tree=builds[number,timestamp]")).json();
             const startedAt = Date.parse(run.createdAt) || 0;
-            const match = (job.builds || []).find((build) => {
+            const candidates = (job.builds || []).filter((build) => Number(build.timestamp || 0) >= startedAt - 60000);
+            let match;
+            for (const candidate of candidates) {
+              const build = await (await jenkinsRequest(`/job/livelabs-qa-engine/${candidate.number}/api/json`)).json();
               const parameters = build.actions?.flatMap((action) => action.parameters || []) || [];
-              return Number(build.timestamp || 0) >= startedAt - 60000 && parameters.some((parameter) => parameter.name === "RETEST_SELECTION" && parameter.value === selection);
-            });
+              if (parameters.some((parameter) => parameter.name === "RETEST_SELECTION" && parameter.value === selection)) {
+                match = candidate;
+                break;
+              }
+            }
             if (match) run.build = match.number;
             else run.status = "Waiting for Jenkins";
           }
