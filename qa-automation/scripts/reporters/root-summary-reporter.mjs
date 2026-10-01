@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v13";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v14";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
