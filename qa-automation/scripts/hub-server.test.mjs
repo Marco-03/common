@@ -73,7 +73,8 @@ test("production submits saved checks, not browser-supplied test commands", asyn
 test("retest history finds a build after Jenkins removes its queue record", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "qa-hub-progress-test-"));
   const reports = path.join(directory, "reports");
-  const selection = JSON.stringify([{ testPath: "tests/platform/generated/workshopOverview.generated.spec.ts", testName: "Saved exact check" }]);
+  const checks = [{ testPath: "tests/platform/generated/workshopOverview.generated.spec.ts", testName: "Saved exact check" }];
+  const selection = JSON.stringify({ checks, ids: ["22"] });
   fs.mkdirSync(path.join(reports, "retest"), { recursive: true });
   fs.writeFileSync(path.join(reports, "retest", "history.json"), JSON.stringify({ runs: [{ runId: "retest-result", attemptId: "jenkins-livelabs-qa-engine-73-catalog-slice" }] }));
   fs.writeFileSync(path.join(directory, "state.json"), JSON.stringify({ retest: {}, runs: [{ id: "retest", createdAt: "2026-10-01T12:00:00.000Z", count: 1, status: "Queued", queue: 91, selection }] }));
@@ -83,7 +84,7 @@ test("retest history finds a build after Jenkins removes its queue record", asyn
   const server = createHub({ directory, reports, jenkins: "http://jenkins.test/jenkins", fetcher: async (url) => {
     if (url.endsWith("/queue/item/91/api/json")) return new Response("missing", { status: 404 });
     if (url.includes("/job/livelabs-qa-engine/api/json?")) {
-      return new Response(JSON.stringify({ builds: [{ number: 73, timestamp: Date.parse("2026-10-01T12:00:01.000Z"), actions: [{ parameters: [{ name: "RETEST_SELECTION", value: Buffer.from(selection).toString("base64") }] }] }] }));
+      return new Response(JSON.stringify({ builds: [{ number: 73, timestamp: Date.parse("2026-10-01T12:00:01.000Z"), actions: [{ parameters: [{ name: "RETEST_SELECTION", value: Buffer.from(JSON.stringify(checks)).toString("base64") }] }] }] }));
     }
     if (url.endsWith("/job/livelabs-qa-engine/73/api/json")) return new Response(JSON.stringify({ building: false, result: "UNSTABLE" }));
     throw new Error(`Unexpected URL ${url}`);

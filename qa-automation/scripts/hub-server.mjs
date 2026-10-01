@@ -62,9 +62,10 @@ export function createHub({ directory, preview = false, reports = "/var/qa-repor
             if (queue.cancelled) { run.status = "Cancelled"; run.finished = true; }
             if (queue.executable) run.build = queue.executable.number;
           } catch {
-            const selection = Buffer.from(run.selection || "").toString("base64");
-            const query = new URLSearchParams({ tree: "builds[number,result,building,timestamp,actions[parameters[name,value]]]" });
-            const job = await (await jenkinsRequest(`/job/livelabs-qa-engine/api/json?${query}`)).json();
+            const savedSelection = JSON.parse(run.selection || "{}");
+            const checks = Array.isArray(savedSelection) ? savedSelection : savedSelection.checks;
+            const selection = Buffer.from(JSON.stringify(checks || [])).toString("base64");
+            const job = await (await jenkinsRequest("/job/livelabs-qa-engine/api/json?tree=builds[number,result,building,timestamp,actions[parameters[name,value]]]")).json();
             const startedAt = Date.parse(run.createdAt) || 0;
             const match = (job.builds || []).find((build) => {
               const parameters = build.actions?.flatMap((action) => action.parameters || []) || [];
