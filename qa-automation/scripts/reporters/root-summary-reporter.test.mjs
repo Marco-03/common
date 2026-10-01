@@ -479,7 +479,7 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v13"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v14"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
