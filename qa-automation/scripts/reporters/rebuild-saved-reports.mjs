@@ -14,6 +14,7 @@ import { PAR_REPORT_RENDERER_VERSION } from "./par-link-report.mjs";
 const CHANNELS = {
   par: { landingPage: "par-links.html" },
   regression: { landingPage: "summary.html" },
+  retest: { landingPage: "summary.html" },
 };
 const SAFE_RUN_ID = /^[A-Za-z0-9._:-]+$/;
 

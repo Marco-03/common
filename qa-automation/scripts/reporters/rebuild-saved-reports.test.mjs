@@ -24,6 +24,7 @@ test("rebuilds shared latest and history pages from saved report JSON without ru
       [
         ["par", 0],
         ["regression", 1],
+        ["retest", 0],
       ],
     );
     assert.equal(results[1].restoredLatestRun, true);
@@ -46,6 +47,42 @@ test("rebuilds shared latest and history pages from saved report JSON without ru
     assert.match(
       fs.readFileSync(path.join(reportsBase, "par", "index.html"), "utf-8"),
       /No completed reports have been saved yet/,
+    );
+  } finally {
+    fs.rmSync(reportsBase, { recursive: true, force: true });
+  }
+});
+
+test("keeps selected-item retests out of overall regression history", () => {
+  const reportsBase = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-retest-history-"));
+
+  try {
+    const overall = regressionSummary("2026-07-30T12-00-00-000Z");
+    const retest = {
+      ...regressionSummary("2026-07-31T12-00-00-000Z", "2026-07-31T12:00:00.000Z"),
+      reportChannel: "retest",
+      runType: "retest",
+      scope: { label: "Selected-item retest" },
+    };
+    writeRun(reportsBase, overall, "regression");
+    writeRun(reportsBase, retest, "retest");
+
+    const results = rebuildSavedReports(reportsBase);
+    assert.equal(results.find((result) => result.channel === "regression").runCount, 1);
+    assert.equal(results.find((result) => result.channel === "retest").runCount, 1);
+
+    const overallHistory = JSON.parse(
+      fs.readFileSync(path.join(reportsBase, "regression", "history.json"), "utf-8"),
+    );
+    const retestHistory = JSON.parse(
+      fs.readFileSync(path.join(reportsBase, "retest", "history.json"), "utf-8"),
+    );
+    assert.deepEqual(overallHistory.runs.map((run) => run.runId), [overall.runId]);
+    assert.deepEqual(retestHistory.runs.map((run) => run.runId), [retest.runId]);
+    assert.equal(retestHistory.runs[0].runType, "retest");
+    assert.match(
+      fs.readFileSync(path.join(reportsBase, "retest", "index.html"), "utf-8"),
+      /Selected-item retest/,
     );
   } finally {
     fs.rmSync(reportsBase, { recursive: true, force: true });
@@ -135,8 +172,8 @@ test("VM startup restores shared reports before rebuilding their indexes", () =>
   assert.doesNotMatch(entrypoint, /Run the matching Jenkins job to create the first report/);
 });
 
-function writeRun(reportsBase, summary) {
-  const runDir = path.join(reportsBase, "regression", "runs", summary.runId);
+function writeRun(reportsBase, summary, channel = "regression") {
+  const runDir = path.join(reportsBase, channel, "runs", summary.runId);
   fs.mkdirSync(runDir, { recursive: true });
   fs.writeFileSync(path.join(runDir, "summary.json"), JSON.stringify(summary), "utf-8");
 }
