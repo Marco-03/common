@@ -307,11 +307,18 @@ pipeline {
         }
       }
       archiveArtifacts(
-        artifacts: "qa-automation/artifacts/jenkins/**/*,qa-automation/tests/data/generated/*.json,qa-automation/reports/**/*",
+        artifacts: "qa-automation/tests/data/generated/*.json,qa-automation/reports/**/*",
         allowEmptyArchive: true,
         fingerprint: true
       )
       junit(testResults: "qa-automation/artifacts/jenkins/**/junit.xml", allowEmptyResults: true)
+      script {
+        if (fileExists("qa-automation/artifacts/jenkins")) {
+          dir("qa-automation/artifacts/jenkins") {
+            deleteDir()
+          }
+        }
+      }
     }
   }
 }

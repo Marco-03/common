@@ -113,9 +113,16 @@ Ignore next.owner@oracle.com here.
     expect(found.every((url) => !url.endsWith(")**"))).toBe(true);
   });
 
-  test("removes LiveLabs custom video size suffixes before checking the PAR", () => {
-    expect(extractParUrlsFromText(PAR_URL.replace("assets/demo.zip", "livestack/Videos/peakgear/table-assist.mp4") + ":medium"))
-      .toEqual([PAR_URL.replace("assets/demo.zip", "livestack/Videos/peakgear/table-assist.mp4")]);
+  test("ignores LiveStack custom video PARs without hiding other video downloads", () => {
+    const liveStackVideo = PAR_URL.replace(
+      "assets/demo.zip",
+      "livestack/Videos/peakgear/table-assist.mp4",
+    );
+    const regularVideo = PAR_URL.replace("assets/demo.zip", "assets/product-demo.mp4");
+
+    expect(extractParUrlsFromText(`[](video:${liveStackVideo}:medium)`)).toEqual([]);
+    expect(extractParUrlsFromText(liveStackVideo)).toEqual([]);
+    expect(extractParUrlsFromText(regularVideo)).toEqual([regularVideo]);
   });
 
   test("ignores explicit angle-bracket PAR placeholders without hiding real links", () => {

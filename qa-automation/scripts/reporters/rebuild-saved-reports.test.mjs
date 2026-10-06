@@ -172,6 +172,15 @@ test("VM startup restores shared reports before rebuilding their indexes", () =>
   assert.doesNotMatch(entrypoint, /Run the matching Jenkins job to create the first report/);
 });
 
+test("Jenkins keeps saved reports without archiving the duplicate Playwright artifact tree", () => {
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const jenkinsfile = fs.readFileSync(path.join(projectRoot, "Jenkinsfile"), "utf-8");
+
+  assert.doesNotMatch(jenkinsfile, /archiveArtifacts\([\s\S]*artifacts\/jenkins\/\*\*\/\*/);
+  assert.match(jenkinsfile, /junit\(testResults: "qa-automation\/artifacts\/jenkins\/\*\*\/junit\.xml"/);
+  assert.match(jenkinsfile, /dir\("qa-automation\/artifacts\/jenkins"\)\s*\{\s*deleteDir\(\)/);
+});
+
 function writeRun(reportsBase, summary, channel = "regression") {
   const runDir = path.join(reportsBase, channel, "runs", summary.runId);
   fs.mkdirSync(runDir, { recursive: true });

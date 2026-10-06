@@ -157,6 +157,7 @@ export function extractParUrlsFromText(value: string): string[] {
     const candidate = stripCustomVideoDisplaySuffix(trimUrlPunctuation(match));
     if (isObviousParPlaceholder(candidate)) continue;
     const parsed = parseParUrl(candidate);
+    if (parsed && isLiveStackCustomVideo(parsed.objectName)) continue;
     if (parsed) urls.add(parsed.url.toString());
   }
 
@@ -165,6 +166,10 @@ export function extractParUrlsFromText(value: string): string[] {
 
 function stripCustomVideoDisplaySuffix(value: string): string {
   return value.replace(/(\.(?:mp4|webm|mov|m4v|ogv)):(?:small|medium|large|full|wide)(?=$|[?#])/i, "$1");
+}
+
+function isLiveStackCustomVideo(objectName: string): boolean {
+  return /(?:^|\/)livestack\/videos\/.*\.(?:mp4|webm|mov|m4v|ogv)$/i.test(objectName);
 }
 
 export function mergeParCandidates(candidates: ParCandidate[]): ParCandidate[] {
