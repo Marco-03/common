@@ -167,17 +167,26 @@ export function inspectWritingGrammar(document: WorkshopSourceDocument): SourceQ
     const line = proseLines[lineIndex];
     for (const match of line.matchAll(/\b([A-Za-z]{2,})[ \t]+\1\b/gi)) {
       if (/^(?:had|that)$/i.test(match[1])) continue;
+      if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Repeated word", match[0], `Remove one repeated "${match[1]}".`));
     }
     for (const match of line.matchAll(/\b[A-Za-z]+[ \t]+[,.;!?]/g)) {
+      if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Space before punctuation", match[0], "Remove the space before the punctuation mark."));
     }
     for (const match of line.matchAll(/[,;:!?][A-Za-z]/g)) {
+      if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Missing space after punctuation", match[0], "Add a space after the punctuation mark."));
     }
   }
 
   return deduplicateDetails(details);
+}
+
+function sourceLineContainsMarker(sourceLine: string, marker: string): boolean {
+  const normalizedSource = sourceLine.replace(/\s+/g, " ").trim().toLowerCase();
+  const normalizedMarker = marker.replace(/\s+/g, " ").trim().toLowerCase();
+  return Boolean(normalizedMarker && normalizedSource.includes(normalizedMarker));
 }
 
 export async function inspectPossibleTypos(document: WorkshopSourceDocument): Promise<SourceQualityDetail[]> {

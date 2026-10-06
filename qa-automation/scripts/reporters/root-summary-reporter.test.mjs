@@ -589,6 +589,12 @@ test("renders source quality findings with plain fixes and exact lab links", () 
           section: "Task 5: Review and Run the Imported Notebook",
           pageUrl: exactLab4Url,
           suggestion: "Remove one repeated \"to\".",
+        }), sourceDetail({
+          label: "Space before punctuation",
+          marker: "Enter .",
+          text: "* **Job Name:** Enter `Harvest_Data_Lake_Sandbox` .",
+          sourceLine: 278,
+          suggestion: "Remove the space before the punctuation mark.",
         })],
       },
       {
@@ -651,6 +657,7 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.match(html, /Task 5: Review and Run the Imported Notebook/);
     assert.match(html, /Open Lab 4/);
     assert.doesNotMatch(html, /Source: The status goes from READY/);
+    assert.doesNotMatch(html, /Harvest_Data_Lake_Sandbox/);
     assert.match(html, /\*\*Important:\*\* Select the compartment/);
     assert.match(html, /Enter the sample sentence/);
     assert.match(html, /Open Lab 2/);

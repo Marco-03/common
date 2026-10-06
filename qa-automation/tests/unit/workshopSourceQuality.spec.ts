@@ -98,6 +98,16 @@ test("prose after code retains original source line", () => {
   expect(inspectWritingGrammar(document)).toEqual([expect.objectContaining({ sourceLine: 3, marker: "is is" })]);
 });
 
+test("does not create punctuation findings across inline code", () => {
+  const document = source([
+    "# Lab",
+    "* **Job Name:** Enter `Harvest_Data_Lake_Sandbox` .",
+    "Select formats such as `.log`, `.txt`, and `.pdf` .",
+  ].join("\n"));
+
+  expect(inspectWritingGrammar(document)).toEqual([]);
+});
+
 test("keeps missing source pages separate from successfully scanned labs", async () => {
   const url = "https://example.test/coverage/index.html";
   const page = {

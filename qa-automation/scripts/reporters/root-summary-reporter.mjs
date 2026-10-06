@@ -2750,11 +2750,16 @@ function reportCatalogItems(items) {
       const issues = (item.issues || [])
         .map((issue) => {
           const code = canonicalIssueCode(issue.code);
-          return code === issue.code ? issue : { ...issue, code, label: classificationLabel(code) };
+          const normalizedIssue = code === issue.code ? issue : { ...issue, code, label: classificationLabel(code) };
+          return sourceQualityIssueWithActionableDetails(normalizedIssue);
         })
-        .filter((issue) => issue.code !== "CONTENT_RELEVANCE");
+        .filter((issue) => issue && issue.code !== "CONTENT_RELEVANCE");
+      const issueCodes = new Set(issues.map((issue) => issue.code));
       let tests = (item.tests || []).map((test) => {
         const code = canonicalIssueCode(test.classification?.code || "");
+        if (["WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(code) && !issueCodes.has(code)) {
+          return { ...test, status: test.expectedStatus || "passed", issues: [] };
+        }
         if (code !== "CONTENT_RELEVANCE") {
           return code === test.classification?.code
             ? test
@@ -2786,6 +2791,16 @@ function reportCatalogItems(items) {
         itemPriorityRank(left) - itemPriorityRank(right) ||
         catalogItemDisplayTitle(left.catalogItem).localeCompare(catalogItemDisplayTitle(right.catalogItem)),
     );
+}
+
+function sourceQualityIssueWithActionableDetails(issue) {
+  if (!["WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(issue?.code)) return issue;
+  const details = operatorIssueDetails(issue).filter((detail) => {
+    const marker = String(detail?.marker || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const text = String(detail?.text || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return Boolean(marker && text.includes(marker));
+  });
+  return details.length > 0 ? { ...issue, details } : null;
 }
 
 function mergeDuplicateReportItems(items) {
