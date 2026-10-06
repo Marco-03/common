@@ -80,7 +80,7 @@ export async function collectWorkshopSourceQualityIssues(
 
 export function inspectMarkdownFormatting(document: WorkshopSourceDocument): SourceQualityDetail[] {
   const lines = document.text.split(/\r?\n/);
-  const proseLines = maskMarkdownNonProse(document.text).split(/\r?\n/);
+  const proseLines = maskMarkdownNonProse(document.text, document.renderedUrl).split(/\r?\n/);
   const details: SourceQualityDetail[] = [];
   const strongMarkers: Array<{ line: number; marker: "**" | "__" }> = [];
   let fence: { marker: string; line: number } | undefined;
@@ -149,7 +149,7 @@ export function inspectMarkdownFormatting(document: WorkshopSourceDocument): Sou
 
 export function inspectWritingGrammar(document: WorkshopSourceDocument): SourceQualityDetail[] {
   const lines = document.text.split(/\r?\n/);
-  const proseLines = maskMarkdownNonProse(document.text).split(/\r?\n/);
+  const proseLines = maskMarkdownNonProse(document.text, document.renderedUrl).split(/\r?\n/);
   const details: SourceQualityDetail[] = [];
   let inFence = false;
   let frontMatter = false;
@@ -170,7 +170,7 @@ export function inspectWritingGrammar(document: WorkshopSourceDocument): SourceQ
       if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Repeated word", match[0], `Remove one repeated "${match[1]}".`));
     }
-    for (const match of line.matchAll(/\b[A-Za-z]+[ \t]+[,.;!?]/g)) {
+    for (const match of line.matchAll(/\b[A-Za-z]+[ \t]+(?:[,;!?]|\.(?![A-Za-z0-9]))/g)) {
       if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Space before punctuation", match[0], "Remove the space before the punctuation mark."));
     }
@@ -190,7 +190,7 @@ function sourceLineContainsMarker(sourceLine: string, marker: string): boolean {
 }
 
 export async function inspectPossibleTypos(document: WorkshopSourceDocument): Promise<SourceQualityDetail[]> {
-  const text = maskMarkdownNonProse(document.text);
+  const text = maskMarkdownNonProse(document.text, document.renderedUrl);
   const result = await spellCheckDocument(
     { uri: document.sourceUrl, text, languageId: "markdown", locale: "en,en-US,en-GB" },
     { generateSuggestions: true, noConfigSearch: true, forceCheck: true },
@@ -261,9 +261,9 @@ function nearestHeading(lines: string[], lineIndex: number): string | undefined 
   return undefined;
 }
 
-function maskMarkdownNonProse(text: string): string {
+function maskMarkdownNonProse(text: string, renderedUrl: string): string {
   // Mask before removing tags, preserving offsets and original source line numbers.
-  const prepared = text
+  const prepared = maskInactiveWorkshopVariants(text, renderedUrl)
     .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, maskValue)
     .replace(/<!--[\s\S]*?(?:-->|$)/g, maskValue)
     .replace(/<(pre|copy|code)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, maskValue);
@@ -273,6 +273,20 @@ function maskMarkdownNonProse(text: string): string {
     for (let index = token.map[0]; index < token.map[1]; index++) lines[index] = maskValue(lines[index]);
   }
   return lines.map(maskNonProse).join("");
+}
+
+function maskInactiveWorkshopVariants(text: string, renderedUrl: string): string {
+  const variant = renderedUrl.match(/\/workshops\/([^/?#]+)\//i)?.[1]?.toLowerCase();
+  if (!variant) return text;
+
+  return text.replace(
+    /(<if\s+type\s*=\s*["']([^"']+)["'][^>]*>)([\s\S]*?)(<\/if\s*>)/gi,
+    (block, openingTag: string, configuredTypes: string, content: string, closingTag: string) => {
+      const types = configuredTypes.toLowerCase().split(/[\s,|]+/).filter(Boolean);
+      if (!types.includes(variant)) return maskValue(block);
+      return `${maskValue(openingTag)}${content}${maskValue(closingTag)}`;
+    },
+  );
 }
 
 function maskNonProse(value: string): string {

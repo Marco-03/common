@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v15";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v16";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -2798,7 +2798,16 @@ function sourceQualityIssueWithActionableDetails(issue) {
   const details = operatorIssueDetails(issue).filter((detail) => {
     const marker = String(detail?.marker || "").replace(/\s+/g, " ").trim().toLowerCase();
     const text = String(detail?.text || "").replace(/\s+/g, " ").trim().toLowerCase();
-    return Boolean(marker && text.includes(marker));
+    const markerIndex = marker ? text.indexOf(marker) : -1;
+    if (markerIndex < 0) return false;
+    if (
+      /^space before punctuation$/i.test(String(detail?.label || "")) &&
+      marker.endsWith(".") &&
+      /[a-z0-9]/i.test(text[markerIndex + marker.length] || "")
+    ) {
+      return false;
+    }
+    return true;
   });
   return details.length > 0 ? { ...issue, details } : null;
 }

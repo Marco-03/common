@@ -103,9 +103,30 @@ test("does not create punctuation findings across inline code", () => {
     "# Lab",
     "* **Job Name:** Enter `Harvest_Data_Lake_Sandbox` .",
     "Select formats such as `.log`, `.txt`, and `.pdf` .",
+    "![The Filename field shows the selected .json notebook file.](./images/open-dialog.png)",
   ].join("\n"));
 
   expect(inspectWritingGrammar(document)).toEqual([]);
+});
+
+test("checks only the conditional workshop variant that is rendered", async () => {
+  const document = source([
+    '<if type="livelabs">',
+    "# Review the Workshop Environment Setup (Optional)",
+    "## Introduction",
+    "This visible sentence is correct.",
+    "</if>",
+    '<if type="freetier">',
+    "# Set Up the Workshop Environment",
+    "## Task 1: Log in to the Oracle Cloud Console",
+    "Then then click the image with the selcted option.",
+    "</if>",
+  ].join("\n"));
+  document.renderedUrl = "https://example.test/workshops/livelabs/index.html?lab=setup-workshop-environment";
+
+  expect(inspectMarkdownFormatting(document)).toEqual([]);
+  expect(inspectWritingGrammar(document)).toEqual([]);
+  expect(await inspectPossibleTypos(document)).toEqual([]);
 });
 
 test("keeps missing source pages separate from successfully scanned labs", async () => {

@@ -595,6 +595,12 @@ test("renders source quality findings with plain fixes and exact lab links", () 
           text: "* **Job Name:** Enter `Harvest_Data_Lake_Sandbox` .",
           sourceLine: 278,
           suggestion: "Remove the space before the punctuation mark.",
+        }), sourceDetail({
+          label: "Space before punctuation",
+          marker: "selected .",
+          text: "![The Filename field shows the selected .json notebook file.](./images/open-dialog.png)",
+          sourceLine: 76,
+          suggestion: "Remove the space before the punctuation mark.",
         })],
       },
       {
@@ -658,6 +664,7 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.match(html, /Open Lab 4/);
     assert.doesNotMatch(html, /Source: The status goes from READY/);
     assert.doesNotMatch(html, /Harvest_Data_Lake_Sandbox/);
+    assert.doesNotMatch(html, /selected \.json/);
     assert.match(html, /\*\*Important:\*\* Select the compartment/);
     assert.match(html, /Enter the sample sentence/);
     assert.match(html, /Open Lab 2/);
