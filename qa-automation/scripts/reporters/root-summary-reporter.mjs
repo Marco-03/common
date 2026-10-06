@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v14";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v15";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -1690,6 +1690,59 @@ function htmlSummary(summary, context = {}) {
       overflow-wrap: anywhere;
       white-space: normal;
     }
+    .source-quality-row { align-items: flex-start; }
+    .source-quality-copy {
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      width: 100%;
+    }
+    .source-quality-location {
+      display: grid;
+      gap: 2px;
+    }
+    .source-quality-location span,
+    .source-quality-line {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .source-quality-edit {
+      align-items: start;
+      display: grid;
+      gap: 7px;
+      grid-template-columns: 92px minmax(0, 1fr);
+    }
+    .source-quality-edit > span {
+      font-size: 12px;
+      font-weight: 700;
+      padding-top: 6px;
+      text-transform: uppercase;
+    }
+    .source-quality-edit code {
+      background: #f4f7fa;
+      border: 1px solid var(--line);
+      display: block;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+      padding: 6px 8px;
+      white-space: normal;
+    }
+    .source-quality-edit mark {
+      background: #fff0a6;
+      color: #111820;
+      font-weight: 700;
+      padding: 1px 2px;
+    }
+    .source-quality-fix {
+      font-size: 13px;
+      margin: 0;
+    }
+    .source-quality-row > .link-button {
+      flex: 0 0 auto;
+      min-width: 112px;
+      text-align: center;
+    }
     .operator-pass {
       align-items: center;
       background: var(--pass-bg);
@@ -2275,6 +2328,8 @@ function htmlSummary(summary, context = {}) {
       .result-summary::after { top: 12px; }
       .result-summary > * { min-width: 0; overflow-wrap: anywhere; }
       .affected-item-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+      .source-quality-edit { grid-template-columns: minmax(0, 1fr); }
+      .source-quality-edit > span { padding-top: 0; }
       .operator-issue, .affected-items, .issue-location { min-width: 0; }
       header { padding: 22px 18px; }
       main { padding: 18px; }
@@ -3883,6 +3938,7 @@ function operatorIssueHtml(issue, index, item, context) {
   const affected = operatorIssueAffectedItemsHtml(issue, item);
   const location = issueLocationForItem(issue, item);
   const reproduction = operatorIssueReproduction(issue, item);
+  const sourceQualityIssue = ["MARKDOWN_FORMATTING", "WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(issue.code);
 
   return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
     <div class="operator-issue-heading">
@@ -3890,13 +3946,13 @@ function operatorIssueHtml(issue, index, item, context) {
       <span class="pill ${issue.severity === "blocker" ? "fail" : "warn"}">${escapeHtml(severityLabel)}</span>
       <h4>${escapeHtml(index + 1)}. ${escapeHtml(issueDisplayLabel(issue))}</h4>
     </div>
-    <div class="issue-guidance">
+    ${sourceQualityIssue ? "" : `<div class="issue-guidance">
       <p><strong>What is wrong:</strong> ${escapeHtml(operatorIssueProblem(issue, item))}</p>
       ${reproduction ? `<p><strong>How to reproduce:</strong> ${escapeHtml(reproduction)}</p>` : ""}
       <p><strong>What to change:</strong> ${escapeHtml(operatorIssueAction(issue, item))}</p>
-    </div>
+    </div>`}
     ${affected}
-    <div class="issue-location-block">
+    ${sourceQualityIssue ? "" : `<div class="issue-location-block">
       <div class="issue-location-row">
         <div class="issue-location-copy">
           <span>Where to change it</span>
@@ -3905,7 +3961,7 @@ function operatorIssueHtml(issue, index, item, context) {
         </div>
         ${location.url ? externalActionLinkHtml(location.url, location.actionLabel || "Open this page") : ""}
       </div>
-    </div>
+    </div>`}
   </section>`;
 }
 
@@ -4276,15 +4332,108 @@ function operatorIssueAffectedItemsHtml(issue, item) {
 
   return `<div class="affected-items">
     <strong>${escapeHtml(operatorIssueAffectedHeading(issue))}</strong>
-    ${entries.map((entry) => `<div class="affected-item-row">
-      <div class="affected-item-copy">
-        <strong>${escapeHtml(entry.label)}</strong>
-        ${entry.url ? `<code>${escapeHtml(entry.url)}</code>` : ""}
-        ${entry.detail ? `<span>${escapeHtml(entry.detail)}</span>` : ""}
-      </div>
-      ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, entry.actionLabel || catalogItemOpenLabel(item?.catalogItem?.type)) : ""}
-    </div>`).join("")}
+    ${entries.map((entry) => entry.sourceQualityIssue
+      ? sourceQualityAffectedItemHtml(entry, item)
+      : `<div class="affected-item-row">
+          <div class="affected-item-copy">
+            <strong>${escapeHtml(entry.label)}</strong>
+            ${entry.url ? `<code>${escapeHtml(entry.url)}</code>` : ""}
+            ${entry.detail ? `<span>${escapeHtml(entry.detail)}</span>` : ""}
+          </div>
+          ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, entry.actionLabel || catalogItemOpenLabel(item?.catalogItem?.type)) : ""}
+        </div>`).join("")}
   </div>`;
+}
+
+function sourceQualityAffectedItemHtml(entry, item) {
+  const labTitle = String(entry.labTitle || entry.location || "Workshop source").trim();
+  const section = String(entry.section || "").trim();
+  const sourceLine = Number(entry.sourceLine || 0);
+  const source = sourceQualityExcerpt(entry.sourceText, sourceQualityTarget(entry));
+  const correctedText = sourceQualityCorrectedText(entry);
+  const corrected = correctedText ? sourceQualityExcerpt(correctedText, "") : null;
+  const actionLabel = entry.labNumber > 0 && isExactLabSourceUrl(entry.actionUrl)
+    ? `Open Lab ${entry.labNumber}`
+    : entry.actionLabel || catalogItemOpenLabel(item?.catalogItem?.type);
+
+  return `<div class="affected-item-row source-quality-row">
+    <div class="source-quality-copy">
+      <strong>${escapeHtml(entry.label)}</strong>
+      <div class="source-quality-location">
+        <span>WHERE</span>
+        <strong>${escapeHtml(labTitle)}</strong>
+        ${section && section !== labTitle ? `<span>${escapeHtml(section)}</span>` : ""}
+        ${sourceLine > 0 ? `<span class="source-quality-line">Markdown line ${escapeHtml(String(sourceLine))}</span>` : ""}
+      </div>
+      ${source ? `<div class="source-quality-edit"><span>Find this text</span><code>${source.html}</code></div>` : ""}
+      ${corrected ? `<div class="source-quality-edit"><span>Replace with</span><code>${corrected.html}</code></div>` : `<p class="source-quality-fix"><strong>Fix:</strong> ${escapeHtml(entry.suggestion || "Review and correct this source text.")}</p>`}
+    </div>
+    ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, actionLabel) : ""}
+  </div>`;
+}
+
+function sourceQualityTarget(entry) {
+  const text = String(entry.sourceText || "");
+  const marker = String(entry.marker || "");
+  const label = String(entry.sourceLabel || entry.label || "");
+  if (/space before closing/i.test(label)) {
+    return text.match(/\s+\*\*/)?.[0] || marker;
+  }
+  return marker;
+}
+
+function sourceQualityCorrectedText(entry) {
+  const text = String(entry.sourceText || "");
+  const marker = String(entry.marker || "");
+  const label = String(entry.sourceLabel || entry.label || "");
+  const suggestion = String(entry.suggestion || "");
+  if (!text || !marker) return "";
+
+  if (/repeated word/i.test(label)) {
+    const words = marker.trim().split(/\s+/);
+    if (words.length === 2 && words[0].toLowerCase() === words[1].toLowerCase()) {
+      return replaceFirstCaseInsensitive(text, marker, words[0]);
+    }
+  }
+  if (/space before punctuation/i.test(label)) {
+    return replaceFirstCaseInsensitive(text, marker, marker.replace(/\s+([,.;!?])$/, "$1"));
+  }
+  if (/missing space after punctuation/i.test(label) && /^[,;:!?][A-Za-z]$/.test(marker)) {
+    return replaceFirstCaseInsensitive(text, marker, `${marker[0]} ${marker[1]}`);
+  }
+  if (/space before closing/i.test(label)) {
+    const target = text.match(/\s+\*\*/)?.[0] || "";
+    return target ? text.replace(target, "**") : "";
+  }
+  if (/typo/i.test(label)) {
+    const replacement = suggestion.match(/replace it with\s+["']([^"']+)["']/i)?.[1] || "";
+    return replacement ? replaceFirstCaseInsensitive(text, marker, replacement) : "";
+  }
+  return "";
+}
+
+function replaceFirstCaseInsensitive(text, search, replacement) {
+  const index = text.toLowerCase().indexOf(search.toLowerCase());
+  if (index < 0) return "";
+  return `${text.slice(0, index)}${replacement}${text.slice(index + search.length)}`;
+}
+
+function sourceQualityExcerpt(value, target, maxLength = 220) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const needle = String(target || "");
+  const targetIndex = needle ? text.toLowerCase().indexOf(needle.toLowerCase()) : -1;
+  const focus = targetIndex >= 0 ? targetIndex : 0;
+  const start = text.length > maxLength ? Math.max(0, Math.min(focus - 80, text.length - maxLength)) : 0;
+  const end = Math.min(text.length, start + maxLength);
+  const excerpt = text.slice(start, end);
+  const localIndex = needle ? excerpt.toLowerCase().indexOf(needle.toLowerCase()) : -1;
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  if (localIndex < 0) return { html: `${prefix}${escapeHtml(excerpt)}${suffix}` };
+  return {
+    html: `${prefix}${escapeHtml(excerpt.slice(0, localIndex))}<mark>${escapeHtml(excerpt.slice(localIndex, localIndex + needle.length))}</mark>${escapeHtml(excerpt.slice(localIndex + needle.length))}${suffix}`,
+  };
 }
 
 function operatorIssueDetails(issue) {
@@ -4435,6 +4584,16 @@ function operatorIssueDetail(detail, index, item, issue) {
     detail: [location, sourceLine, sourceExcerpt, result].filter(Boolean).join(" / "),
     actionUrl,
     actionLabel: sourceLocationActionLabel(detail, item?.catalogItem?.type),
+    sourceQualityIssue,
+    sourceLabel: detail.label || "",
+    sourceText: detail.text || "",
+    marker: detail.marker || "",
+    suggestion: result,
+    location: detail.location || "",
+    labTitle: detail.labTitle || "",
+    labNumber: Number(detail.labNumber || 0),
+    section: detail.section || "",
+    sourceLine: Number(detail.sourceLine || 0),
   };
 }
 

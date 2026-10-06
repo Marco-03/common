@@ -8,6 +8,7 @@ import { writeSummaryFiles, reportHistoryPageHtml } from "./reporters/root-summa
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = path.join(projectRoot, "artifacts", "full-report-preview");
+const previewBaseUrl = process.env.QA_PREVIEW_BASE_URL || "http://127.0.0.1:4175";
 const workshopUrl = (id) => `https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=${id}&clear=RR`;
 const liveStackUrl = (id) =>
   `https://livelabs.oracle.com/ords/r/dbpm/livelabs/livestack-landing-page?p400_id=${id}&clear=RR`;
@@ -165,16 +166,16 @@ const catalogItems = [
       section: "Workshop Source Quality",
       details: [{
         label: "Repeated word",
-        marker: "the the",
-        text: "Open the the application.",
-        suggestion: "Remove one repeated \"the\".",
-        location: "Lab 2: Configure the application / Task 2: Import the sample",
-        pageUrl: "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=2-configure",
-        sourceFileUrl: "https://livelabs.oracle.com/cdn/example/lab-2.md",
-        sourceLine: 27,
-        labTitle: "Lab 2: Configure the application",
-        labNumber: 2,
-        section: "Task 2: Import the sample",
+        marker: "to to",
+        text: "The status goes from READY to to PENDING to RUNNING to FINISHED.",
+        suggestion: "Remove one repeated \"to\".",
+        location: "Lab 4: Query Data Access Autonomous Database and the Data Lake / Task 5: Review and Run the Imported Notebook",
+        pageUrl: "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=4-query-data-access",
+        sourceFileUrl: "https://livelabs.oracle.com/cdn/example/lab-4.md",
+        sourceLine: 242,
+        labTitle: "Lab 4: Query Data Access Autonomous Database and the Data Lake",
+        labNumber: 4,
+        section: "Task 5: Review and Run the Imported Notebook",
       }],
     }, {
       code: "POSSIBLE_TYPO",
@@ -240,14 +241,15 @@ fs.mkdirSync(outputDir, { recursive: true });
 for (const entry of catalogItems) {
   entry.catalogItem.title = "Example: " + entry.catalogItem.title;
   const fixture = `demo-${entry.catalogItem.type}-${entry.catalogItem.id}.html`;
-  const url = `http://127.0.0.1:4175/${fixture}`;
+  const url = `${previewBaseUrl}/${fixture}`;
   const details = [];
   for (const issue of entry.issues) {
     const records = Array.isArray(issue.details) ? issue.details : Object.values(issue.details || {}).find(Array.isArray) || [];
     for (const record of records) {
       if (!record || typeof record !== "object") continue;
-      record.pageUrl = url;
-      record.page_url = url;
+      const exactPageUrl = record.labNumber ? `${url}?lab=${encodeURIComponent(String(record.labNumber))}` : url;
+      record.pageUrl = exactPageUrl;
+      record.page_url = exactPageUrl;
       record.sourceFileUrl = url;
       if (record.sources) for (const source of record.sources) { source.page_url = url; source.source_file_url = url; }
       details.push(record);

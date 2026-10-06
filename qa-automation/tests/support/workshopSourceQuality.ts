@@ -172,7 +172,7 @@ export function inspectWritingGrammar(document: WorkshopSourceDocument): SourceQ
     for (const match of line.matchAll(/\b[A-Za-z]+[ \t]+[,.;!?]/g)) {
       details.push(sourceDetail(document, lines, lineIndex, "Space before punctuation", match[0], "Remove the space before the punctuation mark."));
     }
-    for (const match of line.matchAll(/[,;:!?](?=[A-Za-z])/g)) {
+    for (const match of line.matchAll(/[,;:!?][A-Za-z]/g)) {
       details.push(sourceDetail(document, lines, lineIndex, "Missing space after punctuation", match[0], "Add a space after the punctuation mark."));
     }
   }

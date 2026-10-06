@@ -479,7 +479,7 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v14"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v15"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
@@ -546,6 +546,7 @@ test("renders source quality findings with plain fixes and exact lab links", () 
   const outputDir = path.join(reportsRoot, "latest");
   fs.mkdirSync(outputDir, { recursive: true });
   const exactLabUrl = "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=2-configure";
+  const exactLab4Url = "https://livelabs.oracle.com/cdn/example/workshops/tenancy/index.html?lab=4-query-data-access";
 
   try {
     const sourceDetail = (overrides) => ({
@@ -580,10 +581,14 @@ test("renders source quality findings with plain fixes and exact lab links", () 
         section: "Workshop Source Quality",
         details: [sourceDetail({
           label: "Repeated word",
-          marker: "the the",
-          text: "Open the the application.",
-          sourceLine: 27,
-          suggestion: "Remove one repeated \"the\".",
+          marker: "to to",
+          text: "The status goes from READY to to PENDING to RUNNING to FINISHED.",
+          sourceLine: 242,
+          labTitle: "Lab 4: Query Data Access Autonomous Database and the Data Lake",
+          labNumber: 4,
+          section: "Task 5: Review and Run the Imported Notebook",
+          pageUrl: exactLab4Url,
+          suggestion: "Remove one repeated \"to\".",
         })],
       },
       {
@@ -638,10 +643,21 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.match(html, /Grammar or punctuation to review/);
     assert.match(html, /Word to review/);
     assert.match(html, /Markdown line 18/);
-    assert.match(html, /Remove the space immediately before the closing/);
-    assert.match(html, /replace it with &quot;sentence&quot;/);
-    assert.match(html, /Open exact lab/);
+    assert.match(html, /Markdown line 242/);
+    assert.match(html, /Find this text/);
+    assert.match(html, /Replace with/);
+    assert.match(html, /<mark>to to<\/mark>/);
+    assert.match(html, /READY to PENDING to RUNNING to FINISHED/);
+    assert.match(html, /Task 5: Review and Run the Imported Notebook/);
+    assert.match(html, /Open Lab 4/);
+    assert.doesNotMatch(html, /Source: The status goes from READY/);
+    assert.match(html, /\*\*Important:\*\* Select the compartment/);
+    assert.match(html, /Enter the sample sentence/);
+    assert.match(html, /Open Lab 2/);
     assert.match(html, new RegExp(exactLabUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(html, new RegExp(exactLab4Url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.doesNotMatch(html, /Where to change it/);
+    assert.doesNotMatch(html, /How to reproduce:/);
     assert.ok(html.indexOf('value="priority:P1"') < html.indexOf('value="MARKDOWN_FORMATTING"'));
     assert.match(html, /value="WRITING_GRAMMAR"/);
     assert.match(html, /value="POSSIBLE_TYPO"/);

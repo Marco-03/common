@@ -63,6 +63,9 @@ test("reports high-confidence punctuation and spelling candidates", async () => 
     "Space before punctuation",
     "Missing space after punctuation",
   ]));
+  expect(grammar).toEqual(expect.arrayContaining([
+    expect.objectContaining({ label: "Missing space after punctuation", marker: ";N", sourceLine: 3 }),
+  ]));
   expect(typos).toEqual(expect.arrayContaining([
     expect.objectContaining({ marker: "sentnce", sourceLine: 3 }),
   ]));
