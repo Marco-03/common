@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { collectTextDefectDetails, collectContentQualityIssues, isLiveLabsCatalogSearchUrl, probeLinkStatus } from "../support/contentQuality.js";
+import { collectTextDefectDetails, collectContentQualityIssues, isGeneratedWorkshopOverviewIcon, isLiveLabsCatalogSearchUrl, probeLinkStatus } from "../support/contentQuality.js";
 import type { Page } from "@playwright/test";
 import { createServer } from "node:http";
 import { WorkshopInstructionsPage } from "../../pages/platform/workshopInstructionsPage.js";
@@ -45,6 +45,17 @@ test("does not treat LiveLabs catalog search links as broken content destination
   expect(isLiveLabsCatalogSearchUrl("https://livelabs.oracle.com/pls/apex/f?p=133:100:100470405399556::::SEARCH:lakehouse")).toBe(true);
   expect(isLiveLabsCatalogSearchUrl("https://livelabs.oracle.com/ords/r/dbpm/livelabs/livelabs-workshop-cards?clear=100&search=livestacks")).toBe(true);
   expect(isLiveLabsCatalogSearchUrl("https://example.com/search=livestacks")).toBe(false);
+});
+
+test("ignores the session-generated workshop overview icon", () => {
+  expect(isGeneratedWorkshopOverviewIcon({
+    alt: "Workshop Icon",
+    src: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=877&request=NATIVE%3DREGION%20TYPE&session=123",
+  })).toBe(true);
+  expect(isGeneratedWorkshopOverviewIcon({
+    alt: "Architecture diagram",
+    src: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=877&request=NATIVE%3DREGION%20TYPE",
+  })).toBe(false);
 });
 
 test("checks more than fifty links by default on both page types", async ({ page }, testInfo) => {

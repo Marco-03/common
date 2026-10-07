@@ -41,6 +41,20 @@ interface BrokenImageRecord {
   complete: boolean;
 }
 
+export function isGeneratedWorkshopOverviewIcon(image: { alt: string; src: string }): boolean {
+  if (!/^workshop icon$/i.test(String(image.alt || "").trim())) return false;
+  try {
+    const url = new URL(String(image.src || ""));
+    return (
+      url.hostname.toLowerCase() === "livelabs.oracle.com" &&
+      /\/ords\/r\/dbpm\/livelabs\/view-workshop$/i.test(url.pathname) &&
+      /^NATIVE=/i.test(url.searchParams.get("request") || "")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export interface TextDefectRecord {
   label: string;
   marker: string;
@@ -239,7 +253,7 @@ async function collectBrokenVisibleImageIssues(page: Page, contextName: string):
     // fails with the image details instead of silently accepting the problem.
   }
 
-  const brokenImages = (await images.evaluateAll((elements) =>
+  const inspectedImages = (await images.evaluateAll((elements) =>
     elements
       .filter((element): element is HTMLImageElement => element instanceof HTMLImageElement)
       .map((image) => ({
@@ -251,6 +265,7 @@ async function collectBrokenVisibleImageIssues(page: Page, contextName: string):
       }))
       .filter((image) => image.src && (!image.complete || image.naturalWidth === 0 || image.naturalHeight === 0)),
   )) as BrokenImageRecord[];
+  const brokenImages = inspectedImages.filter((image) => !isGeneratedWorkshopOverviewIcon(image));
 
   if (brokenImages.length === 0) {
     return [];

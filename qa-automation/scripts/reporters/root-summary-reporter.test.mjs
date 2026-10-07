@@ -479,7 +479,7 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v15"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v17"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
@@ -675,6 +675,58 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.ok(html.indexOf('value="priority:P1"') < html.indexOf('value="MARKDOWN_FORMATTING"'));
     assert.match(html, /value="WRITING_GRAMMAR"/);
     assert.match(html, /value="POSSIBLE_TYPO"/);
+  } finally {
+    fs.rmSync(reportsRoot, { recursive: true, force: true });
+  }
+});
+
+test("suppresses generated overview icons and summarizes link coverage once", () => {
+  const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-overview-icon-"));
+  const outputDir = path.join(reportsRoot, "latest");
+  fs.mkdirSync(outputDir, { recursive: true });
+  const generatedIconUrl = "https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=877&request=NATIVE%3DREGION%20TYPE&session=123";
+  try {
+    writeSummaryFiles(outputDir, {
+      runId: "2026-10-07T10-00-00-000Z",
+      reportChannel: "regression",
+      status: "failed",
+      startedAt: "2026-10-07T10:00:00.000Z",
+      endedAt: "2026-10-07T10:01:00.000Z",
+      durationMs: 60000,
+      counts: { total: 1, passed: 0, failed: 1, skipped: 0, timedOut: 0, interrupted: 0, unexpected: 1, flaky: 0 },
+      failureCategories: [{ code: "BROKEN_VISIBLE_IMAGE", label: "Broken visible image", count: 1 }],
+      catalogItems: [{
+        key: "workshop:877",
+        status: "failed",
+        issueCount: 1,
+        counts: { total: 3, unexpected: 1 },
+        sections: ["Generated Workshop Overview", "Generated Preview Instructions", "Generated Tenancy Instructions"],
+        catalogItem: { type: "workshop", id: "877", title: "Access the Data Lake", absolute_url: "https://livelabs.oracle.com/workshop" },
+        issues: [{
+          code: "BROKEN_VISIBLE_IMAGE",
+          label: "Broken visible image",
+          severity: "major",
+          message: "One visible image did not load.",
+          section: "Generated Workshop Overview",
+          details: [{ alt: "Workshop Icon", src: generatedIconUrl, naturalWidth: 0, naturalHeight: 0, complete: true }],
+        }],
+        tests: [
+          { section: "Generated Workshop Overview", status: "failed", expectedStatus: "passed", classification: { code: "BROKEN_VISIBLE_IMAGE" }, linkCoverage: JSON.stringify({ checked: 0, found: 0 }) },
+          { section: "Generated Preview Instructions", status: "passed", expectedStatus: "passed", linkCoverage: JSON.stringify({ checked: 0, found: 0 }) },
+          { section: "Generated Tenancy Instructions", status: "passed", expectedStatus: "passed", linkCoverage: JSON.stringify({ checked: 3, found: 3 }) },
+        ],
+      }],
+      failures: [],
+      sections: [],
+    }, reportsRoot);
+
+    const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
+    assert.doesNotMatch(html, /Workshop Icon/);
+    assert.doesNotMatch(html, /NATIVE%3DREGION/);
+    assert.doesNotMatch(html, /Visible links attempted/);
+    assert.doesNotMatch(html, /0 \/ 0/);
+    assert.match(html, /Links checked: 3 of 3/);
+    assert.match(html, /No issues found/);
   } finally {
     fs.rmSync(reportsRoot, { recursive: true, force: true });
   }

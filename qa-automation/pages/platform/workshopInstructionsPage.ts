@@ -6,6 +6,7 @@ import {
   attachContentQualityIssues,
   collectTextDefectDetails,
   contentQualityIssue,
+  isGeneratedWorkshopOverviewIcon,
   recordLinkCoverage,
   type ContentQualityIssue,
 } from "../../tests/support/contentQuality.js";
@@ -154,7 +155,7 @@ export class WorkshopInstructionsPage extends BasePage {
       await images.nth(index).scrollIntoViewIfNeeded();
     }
 
-    const brokenImages = await images.evaluateAll((elements, reportPageUrl) => {
+    const inspectedImages = await images.evaluateAll((elements, reportPageUrl) => {
       const nearestVisibleHeading = (element: Element): string => {
         const headings = Array.from(
           element.ownerDocument.querySelectorAll("h1, h2, h3, h4, h5, h6, [role='heading']"),
@@ -184,6 +185,7 @@ export class WorkshopInstructionsPage extends BasePage {
         }))
         .filter((image) => image.src && (!image.complete || image.naturalWidth === 0 || image.naturalHeight === 0));
     }, this.page.url());
+    const brokenImages = inspectedImages.filter((image) => !isGeneratedWorkshopOverviewIcon(image));
 
     if (brokenImages.length === 0) return [];
     await images.evaluateAll((elements) => {

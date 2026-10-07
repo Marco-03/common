@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v16";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v17";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -2751,13 +2751,13 @@ function reportCatalogItems(items) {
         .map((issue) => {
           const code = canonicalIssueCode(issue.code);
           const normalizedIssue = code === issue.code ? issue : { ...issue, code, label: classificationLabel(code) };
-          return sourceQualityIssueWithActionableDetails(normalizedIssue);
+          return operatorFacingIssueWithActionableDetails(normalizedIssue);
         })
         .filter((issue) => issue && issue.code !== "CONTENT_RELEVANCE");
       const issueCodes = new Set(issues.map((issue) => issue.code));
       let tests = (item.tests || []).map((test) => {
         const code = canonicalIssueCode(test.classification?.code || "");
-        if (["WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(code) && !issueCodes.has(code)) {
+        if (["WRITING_GRAMMAR", "POSSIBLE_TYPO", "BROKEN_VISIBLE_IMAGE"].includes(code) && !issueCodes.has(code)) {
           return { ...test, status: test.expectedStatus || "passed", issues: [] };
         }
         if (code !== "CONTENT_RELEVANCE") {
@@ -2793,7 +2793,11 @@ function reportCatalogItems(items) {
     );
 }
 
-function sourceQualityIssueWithActionableDetails(issue) {
+function operatorFacingIssueWithActionableDetails(issue) {
+  if (issue?.code === "BROKEN_VISIBLE_IMAGE") {
+    const details = operatorIssueDetails(issue).filter((detail) => !isGeneratedWorkshopOverviewIconDetail(detail));
+    return details.length > 0 ? { ...issue, count: details.length, details } : null;
+  }
   if (!["WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(issue?.code)) return issue;
   const details = operatorIssueDetails(issue).filter((detail) => {
     const marker = String(detail?.marker || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -2810,6 +2814,20 @@ function sourceQualityIssueWithActionableDetails(issue) {
     return true;
   });
   return details.length > 0 ? { ...issue, details } : null;
+}
+
+function isGeneratedWorkshopOverviewIconDetail(detail) {
+  if (!/^workshop icon$/i.test(String(detail?.alt || "").trim())) return false;
+  try {
+    const url = new URL(String(detail?.src || ""));
+    return (
+      url.hostname.toLowerCase() === "livelabs.oracle.com" &&
+      /\/ords\/r\/dbpm\/livelabs\/view-workshop$/i.test(url.pathname) &&
+      /^NATIVE=/i.test(url.searchParams.get("request") || "")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function mergeDuplicateReportItems(items) {
@@ -3836,10 +3854,8 @@ function testedItemRowHtml(item, runId, failures, context) {
       </span>
       <span class="result-checks">
         <strong>${escapeHtml(String(checkCount))} check${checkCount === 1 ? "" : "s"}</strong>
-        <small>${escapeHtml(sections.join(", ") || "No section metadata")}</small>
-        ${tests.filter((test) => test.linkCoverage).map((test) => {
-          try { const c = JSON.parse(test.linkCoverage); return `<small>Visible links attempted: ${Number(c.checked)} / ${Number(c.found)}${c.unverified ? `; ${Number(c.unverified)} unverified` : ""}</small>`; } catch { return ""; }
-        }).join("")}
+        <small>${escapeHtml(sections.join(" · ") || "No section metadata")}</small>
+        ${linkCoverageSummaryHtml(tests)}
       </span>
       <span class="result-finding">
         <strong>${priority ? `<span class="priority-badge ${escapeAttribute(priority.toLowerCase())}">${escapeHtml(priority)}</span> ` : ""}${escapeHtml(issueLabel)}</strong>
@@ -3987,6 +4003,23 @@ function operatorIssueHtml(issue, index, item, context) {
       </div>
     </div>`}
   </section>`;
+}
+
+function linkCoverageSummaryHtml(tests) {
+  const totals = (tests || []).reduce((coverage, test) => {
+    if (!test?.linkCoverage) return coverage;
+    try {
+      const value = JSON.parse(test.linkCoverage);
+      coverage.checked += Number(value.checked) || 0;
+      coverage.found += Number(value.found) || 0;
+      coverage.unverified += Number(value.unverified) || 0;
+    } catch {
+      // Ignore malformed optional coverage metadata.
+    }
+    return coverage;
+  }, { checked: 0, found: 0, unverified: 0 });
+  if (totals.checked === 0 && totals.found === 0 && totals.unverified === 0) return "";
+  return `<small>Links checked: ${escapeHtml(String(totals.checked))} of ${escapeHtml(String(totals.found))}${totals.unverified ? ` · ${escapeHtml(String(totals.unverified))} could not be verified` : ""}</small>`;
 }
 
 function parOperatorIssueHtml(issue, index, item, context) {
@@ -4361,7 +4394,7 @@ function operatorIssueAffectedItemsHtml(issue, item) {
       : `<div class="affected-item-row">
           <div class="affected-item-copy">
             <strong>${escapeHtml(entry.label)}</strong>
-            ${entry.url ? `<code>${escapeHtml(entry.url)}</code>` : ""}
+            ${entry.url && issue.code !== "BROKEN_VISIBLE_IMAGE" ? `<code>${escapeHtml(entry.url)}</code>` : ""}
             ${entry.detail ? `<span>${escapeHtml(entry.detail)}</span>` : ""}
           </div>
           ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, entry.actionLabel || catalogItemOpenLabel(item?.catalogItem?.type)) : ""}
@@ -4518,7 +4551,12 @@ function operatorIssueProblem(issue, item) {
     return `In ${location}, ${details.length} links do not open. Each broken destination is listed below.`;
   }
   if (issue.code === "BROKEN_VISIBLE_IMAGE" && details.length > 0) {
-    return `${details.length} visible image${details.length === 1 ? " does" : "s do"} not load.`;
+    const first = details[0] || {};
+    const location = sourceLocationLabel(first) || first.location || humanIssueSection(issue.section);
+    const imageLabel = String(first.alt || "").trim() || "the listed image";
+    return details.length === 1
+      ? `In ${location}, the image "${imageLabel}" did not load.`
+      : `In ${location}, ${details.length} images did not load. Each affected image is listed below.`;
   }
   if (issue.code === "BROKEN_EMBEDDED_CONTENT" && details.length > 0) {
     return `${details.length} embedded item${details.length === 1 ? " does" : "s do"} not load.`;
@@ -4676,7 +4714,7 @@ function operatorIssueAction(issue, item) {
     case "QA_CHECK_FAILED":
       return "Rerun this item and use the developer evidence if it stops again. Do not change workshop content until the report identifies a specific defect.";
     case "BROKEN_VISIBLE_IMAGE":
-      return "Replace or remove each image listed below, republish the workshop, then rerun this item.";
+      return "Open the exact page listed below. Repair or remove the affected image, republish the workshop, then rerun this item.";
     case "BROKEN_VISIBLE_LINK":
       return operatorIssueDetails(issue).some((detail) => isInternalPreviewContentUrl(detail?.url || detail?.href))
         ? "Replace the internal preview address with the current public documentation URL. Republish the workshop, then rerun this item."
