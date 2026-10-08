@@ -34,6 +34,25 @@ test("reports malformed Markdown bold markers with the exact source line", () =>
   });
 });
 
+test("does not pair bold markers when a bold span crosses source lines", () => {
+  const issues = inspectMarkdownFormatting(source([
+    "If your tenancy policy does not allow domain discovery, open **Identity & Security >",
+    "Domains > Domains**, pick the domain labeled **Current domain**, then copy the domain URL.",
+  ].join("\n")));
+
+  expect(issues).toEqual([]);
+});
+
+test("does not treat shebangs, preprocessor directives, or intraword underscores as Markdown errors", () => {
+  const issues = inspectMarkdownFormatting(source([
+    "#!/usr/bin/env bash",
+    "#include <stdio.h>",
+    "Use package__name and foo__bar as identifiers.",
+  ].join("\n")));
+
+  expect(issues).toEqual([]);
+});
+
 test("ignores Markdown and spelling examples inside code blocks", async () => {
   const document = source([
     "# Lab title",
@@ -107,6 +126,28 @@ test("does not create punctuation findings across inline code", () => {
   ].join("\n"));
 
   expect(inspectWritingGrammar(document)).toEqual([]);
+});
+
+test("does not create punctuation findings from Markdown images, entities, or masked content", () => {
+  const document = source([
+    "Click ![Open the navigation menu](./images/menu.png).",
+    "Use&nbsp;text in this example.",
+    "This has a real spacing problem as . Then choose as `sample_value` .",
+  ].join("\n"));
+
+  expect(inspectWritingGrammar(document)).toEqual([
+    expect.objectContaining({ label: "Space before punctuation", marker: "as .", sourceLine: 3 }),
+  ]);
+});
+
+test("does not apply the English typo dictionary to Spanish or Portuguese prose", async () => {
+  const document = source("Seleccione el compartimento para crear los datos. Luego haga clic y use el nombre disponible en la pantalla.");
+  expect(await inspectPossibleTypos(document)).toEqual([]);
+});
+
+test("accepts established technical terms outside code examples", async () => {
+  const document = source("Use EMCC with the sysman account, then run RMAN and inspect tnsnames.");
+  expect(await inspectPossibleTypos(document)).toEqual([]);
 });
 
 test("checks only the conditional workshop variant that is rendered", async () => {

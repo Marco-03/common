@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v17";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v19";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -2757,7 +2757,7 @@ function reportCatalogItems(items) {
       const issueCodes = new Set(issues.map((issue) => issue.code));
       let tests = (item.tests || []).map((test) => {
         const code = canonicalIssueCode(test.classification?.code || "");
-        if (["WRITING_GRAMMAR", "POSSIBLE_TYPO", "BROKEN_VISIBLE_IMAGE"].includes(code) && !issueCodes.has(code)) {
+        if (["MARKDOWN_FORMATTING", "WRITING_GRAMMAR", "POSSIBLE_TYPO", "BROKEN_VISIBLE_IMAGE"].includes(code) && !issueCodes.has(code)) {
           return { ...test, status: test.expectedStatus || "passed", issues: [] };
         }
         if (code !== "CONTENT_RELEVANCE") {
@@ -2798,10 +2798,37 @@ function operatorFacingIssueWithActionableDetails(issue) {
     const details = operatorIssueDetails(issue).filter((detail) => !isGeneratedWorkshopOverviewIconDetail(detail));
     return details.length > 0 ? { ...issue, count: details.length, details } : null;
   }
+  if (issue?.code === "MARKDOWN_FORMATTING") {
+    const details = operatorIssueDetails(issue).filter((detail) => {
+      const label = String(detail?.label || "");
+      const marker = String(detail?.marker || "");
+      const text = String(detail?.text || "");
+      if (/^Heading is missing a space$/i.test(label) && /^\s*#(?:!|include\b|define\b|ifn?def\b|endif\b|else\b|elif\b|pragma\b)/i.test(text)) return false;
+      if (/^Unmatched __ marker$/i.test(label) && strongMarkerCount(text, "__") % 2 === 0) return false;
+      if (!/^Space (?:after opening|before closing) (?:\*\*|__)$/i.test(label) || !["**", "__"].includes(marker)) return true;
+      const markerCount = strongMarkerCount(text, marker);
+      return markerCount % 2 === 0;
+    });
+    return details.length > 0 ? { ...issue, count: details.length, details } : null;
+  }
   if (!["WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(issue?.code)) return issue;
   const details = operatorIssueDetails(issue).filter((detail) => {
-    const marker = String(detail?.marker || "").replace(/\s+/g, " ").trim().toLowerCase();
-    const text = String(detail?.text || "").replace(/\s+/g, " ").trim().toLowerCase();
+    const rawMarker = String(detail?.marker || "").trim();
+    const rawText = String(detail?.text || "");
+    const literalMarkerIndex = rawMarker ? rawText.toLowerCase().indexOf(rawMarker.toLowerCase()) : -1;
+    if (literalMarkerIndex < 0) return false;
+    if (
+      /^space before punctuation$/i.test(String(detail?.label || "")) &&
+      rawMarker.endsWith("!") &&
+      rawText[literalMarkerIndex + rawMarker.length] === "["
+    ) return false;
+    if (
+      /^missing space after punctuation$/i.test(String(detail?.label || "")) &&
+      rawMarker.startsWith(";") &&
+      isHtmlEntityTerminator(rawText, literalMarkerIndex)
+    ) return false;
+    const marker = rawMarker.replace(/\s+/g, " ").toLowerCase();
+    const text = rawText.replace(/\s+/g, " ").trim().toLowerCase();
     const markerIndex = marker ? text.indexOf(marker) : -1;
     if (markerIndex < 0) return false;
     if (
@@ -2814,6 +2841,17 @@ function operatorFacingIssueWithActionableDetails(issue) {
     return true;
   });
   return details.length > 0 ? { ...issue, details } : null;
+}
+
+function strongMarkerCount(text, marker) {
+  const pattern = marker === "**"
+    ? /(?<!\\)\*\*/g
+    : /(?<![\\A-Za-z0-9])__|__(?![A-Za-z0-9])/g;
+  return Array.from(String(text || "").matchAll(pattern)).length;
+}
+
+function isHtmlEntityTerminator(text, semicolonIndex) {
+  return /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+)$/i.test(String(text || "").slice(0, semicolonIndex));
 }
 
 function isGeneratedWorkshopOverviewIconDetail(detail) {

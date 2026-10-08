@@ -6,6 +6,14 @@ import { WORKSHOP_DICTIONARY } from "../../config/workshopDictionary.js";
 import { contentQualityIssue, type ContentQualityIssue } from "./contentQuality.js";
 import { loadWorkshopSourceDocuments, type WorkshopSourceDocument } from "./parSourceDiscovery.js";
 
+const NON_PROSE_MASK = "\uE000";
+const ENGLISH_SIGNAL_WORDS = new Set([
+  "and", "are", "click", "enter", "for", "from", "in", "is", "next", "of", "on", "open", "select", "that", "the", "then", "this", "to", "use", "with", "you", "your",
+]);
+const SPANISH_PORTUGUESE_SIGNAL_WORDS = new Set([
+  "archivo", "arquivos", "clique", "compartimento", "con", "crear", "criar", "dados", "datos", "depois", "disponible", "donde", "el", "haga", "las", "los", "luego", "nombre", "onde", "pantalla", "para", "paso", "passo", "puede", "seleccione", "selecione", "seguinte", "sobre", "tela", "todos", "todas", "uma", "una", "usar", "veja", "voce", "voces",
+]);
+
 export interface SourceQualityDetail {
   label: string;
   marker: string;
@@ -106,11 +114,13 @@ export function inspectMarkdownFormatting(document: WorkshopSourceDocument): Sou
     if (fence) continue;
 
     const line = proseLines[lineIndex];
-    if (/^\s*#{1,6}[^\s#]/.test(line)) {
+    if (/^\s*#{1,6}[^\s#]/.test(line) && !/^\s*#(?:!|include\b|define\b|ifn?def\b|endif\b|else\b|elif\b|pragma\b)/i.test(line)) {
       details.push(sourceDetail(document, lines, lineIndex, "Heading is missing a space", line.trim(), "Add one space after the # heading markers."));
     }
     for (const marker of ["**", "__"] as const) {
       const escapedMarker = marker === "**" ? "\\*\\*" : "__";
+      const markerCount = strongMarkerMatches(line, marker).length;
+      if (markerCount % 2 !== 0) continue;
       const pairedStrong = new RegExp(`(?<!\\\\)${escapedMarker}(.+?)${escapedMarker}`, "g");
       for (const match of line.matchAll(pairedStrong)) {
         const content = match[1] || "";
@@ -129,7 +139,7 @@ export function inspectMarkdownFormatting(document: WorkshopSourceDocument): Sou
     if (!/^\s*\*{3,}\s*$/.test(line)) {
       for (const match of line.matchAll(/(?<!\\)\*\*/g)) strongMarkers.push({ line: lineIndex, marker: "**" });
     }
-    for (const match of line.matchAll(/(?<!\\)__/g)) strongMarkers.push({ line: lineIndex, marker: "__" });
+    for (const match of strongMarkerMatches(line, "__")) strongMarkers.push({ line: lineIndex, marker: "__" });
   }
 
   if (fence) {
@@ -171,10 +181,13 @@ export function inspectWritingGrammar(document: WorkshopSourceDocument): SourceQ
       details.push(sourceDetail(document, lines, lineIndex, "Repeated word", match[0], `Remove one repeated "${match[1]}".`));
     }
     for (const match of line.matchAll(/\b[A-Za-z]+[ \t]+(?:[,;!?]|\.(?![A-Za-z0-9]))/g)) {
+      const matchEnd = (match.index || 0) + match[0].length;
+      if (match[0].trimEnd().endsWith("!") && line[matchEnd] === "[") continue;
       if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Space before punctuation", match[0], "Remove the space before the punctuation mark."));
     }
     for (const match of line.matchAll(/[,;:!?][A-Za-z]/g)) {
+      if (match[0].startsWith(";") && isHtmlEntityTerminator(line, match.index || 0)) continue;
       if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Missing space after punctuation", match[0], "Add a space after the punctuation mark."));
     }
@@ -184,13 +197,24 @@ export function inspectWritingGrammar(document: WorkshopSourceDocument): SourceQ
 }
 
 function sourceLineContainsMarker(sourceLine: string, marker: string): boolean {
-  const normalizedSource = sourceLine.replace(/\s+/g, " ").trim().toLowerCase();
-  const normalizedMarker = marker.replace(/\s+/g, " ").trim().toLowerCase();
-  return Boolean(normalizedMarker && normalizedSource.includes(normalizedMarker));
+  const literalMarker = marker.trim().toLowerCase();
+  return Boolean(literalMarker && sourceLine.toLowerCase().includes(literalMarker));
+}
+
+function strongMarkerMatches(line: string, marker: "**" | "__"): RegExpMatchArray[] {
+  const pattern = marker === "**"
+    ? /(?<!\\)\*\*/g
+    : /(?<![\\A-Za-z0-9])__|__(?![A-Za-z0-9])/g;
+  return Array.from(line.matchAll(pattern));
+}
+
+function isHtmlEntityTerminator(line: string, semicolonIndex: number): boolean {
+  return /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+)$/i.test(line.slice(0, semicolonIndex));
 }
 
 export async function inspectPossibleTypos(document: WorkshopSourceDocument): Promise<SourceQualityDetail[]> {
   const text = maskMarkdownNonProse(document.text, document.renderedUrl);
+  if (hasStrongSpanishOrPortugueseSignal(text)) return [];
   const result = await spellCheckDocument(
     { uri: document.sourceUrl, text, languageId: "markdown", locale: "en,en-US,en-GB" },
     { generateSuggestions: true, noConfigSearch: true, forceCheck: true },
@@ -303,7 +327,14 @@ function maskInlineCode(value: string): string {
 }
 
 function maskValue(value: string): string {
-  return value.replace(/[^\r\n]/g, " ");
+  return value.replace(/[^\r\n]/g, NON_PROSE_MASK);
+}
+
+function hasStrongSpanishOrPortugueseSignal(text: string): boolean {
+  const words = new Set((text.toLowerCase().match(/\p{L}+/gu) || []).map((word) => word.normalize("NFD").replace(/\p{M}/gu, "")));
+  const englishSignals = Array.from(words).filter((word) => ENGLISH_SIGNAL_WORDS.has(word)).length;
+  const nonEnglishSignals = Array.from(words).filter((word) => SPANISH_PORTUGUESE_SIGNAL_WORDS.has(word)).length;
+  return nonEnglishSignals >= 5 && nonEnglishSignals >= englishSignals + 2;
 }
 
 function isHighConfidenceTypo(word: string, suggestion: string): boolean {

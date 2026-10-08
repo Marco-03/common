@@ -479,7 +479,7 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v17"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v19"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
@@ -571,6 +571,24 @@ test("renders source quality findings with plain fixes and exact lab links", () 
           marker: "**",
           text: "**Important: ** Select the compartment.",
           suggestion: "Remove the space immediately before the closing **.",
+        }), sourceDetail({
+          label: "Space before closing **",
+          marker: "**",
+          text: "Domains > Domains**, pick the domain labeled **Current domain**, then copy the domain URL.",
+          sourceLine: 215,
+          suggestion: "Remove the space immediately before the closing **.",
+        }), sourceDetail({
+          label: "Heading is missing a space",
+          marker: "#include <stdio.h>",
+          text: "#include <stdio.h>",
+          sourceLine: 216,
+          suggestion: "Add one space after the # heading markers.",
+        }), sourceDetail({
+          label: "Unmatched __ marker",
+          marker: "__",
+          text: "Use package__name in this example.",
+          sourceLine: 217,
+          suggestion: "Add or remove a __ marker so the bold text has a matching pair.",
         })],
       },
       {
@@ -600,6 +618,24 @@ test("renders source quality findings with plain fixes and exact lab links", () 
           marker: "selected .",
           text: "![The Filename field shows the selected .json notebook file.](./images/open-dialog.png)",
           sourceLine: 76,
+          suggestion: "Remove the space before the punctuation mark.",
+        }), sourceDetail({
+          label: "Space before punctuation",
+          marker: "Click !",
+          text: "Click ![Open the navigation menu](./images/menu.png).",
+          sourceLine: 77,
+          suggestion: "Remove the space before the punctuation mark.",
+        }), sourceDetail({
+          label: "Missing space after punctuation",
+          marker: ";t",
+          text: "Use&nbsp;text in this example.",
+          sourceLine: 78,
+          suggestion: "Add a space after the punctuation mark.",
+        }), sourceDetail({
+          label: "Space before punctuation",
+          marker: "as         .",
+          text: "Choose this as `sample_value` .",
+          sourceLine: 79,
           suggestion: "Remove the space before the punctuation mark.",
         })],
       },
@@ -666,6 +702,12 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.doesNotMatch(html, /Harvest_Data_Lake_Sandbox/);
     assert.doesNotMatch(html, /selected \.json/);
     assert.match(html, /\*\*Important:\*\* Select the compartment/);
+    assert.doesNotMatch(html, /Domains &gt; Domains/);
+    assert.doesNotMatch(html, /#include &lt;stdio\.h&gt;/);
+    assert.doesNotMatch(html, /package__name/);
+    assert.doesNotMatch(html, /Open the navigation menu/);
+    assert.doesNotMatch(html, /Use&amp;nbsp;text/);
+    assert.doesNotMatch(html, /sample_value/);
     assert.match(html, /Enter the sample sentence/);
     assert.match(html, /Open Lab 2/);
     assert.match(html, new RegExp(exactLabUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
