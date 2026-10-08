@@ -121,6 +121,33 @@ test("selects the newest immutable run as latest and preserves every saved run",
   }
 });
 
+test("refreshes an outdated latest report in place when it already has the newest run", () => {
+  const reportsBase = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-report-refresh-"));
+
+  try {
+    const summary = regressionSummary("2026-07-30T12-00-00-000Z");
+    writeRun(reportsBase, summary);
+    const latestDir = path.join(reportsBase, "regression", "latest");
+    fs.mkdirSync(path.join(latestDir, "evidence"), { recursive: true });
+    fs.writeFileSync(path.join(latestDir, "summary.json"), JSON.stringify(summary), "utf-8");
+    fs.writeFileSync(path.join(latestDir, "summary.html"), "old report layout", "utf-8");
+    fs.writeFileSync(path.join(latestDir, "evidence", "keep.txt"), "saved evidence", "utf-8");
+
+    rebuildSavedReports(reportsBase, { channels: ["regression"] });
+
+    assert.match(
+      fs.readFileSync(path.join(latestDir, "summary.html"), "utf-8"),
+      /Overall regression results/,
+    );
+    assert.equal(
+      fs.readFileSync(path.join(latestDir, "evidence", "keep.txt"), "utf-8"),
+      "saved evidence",
+    );
+  } finally {
+    fs.rmSync(reportsBase, { recursive: true, force: true });
+  }
+});
+
 test("upgrades saved PAR reports and adds the shared PAR retest page", () => {
   const reportsBase = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-par-upgrade-"));
   const latestDir = path.join(reportsBase, "par", "latest");

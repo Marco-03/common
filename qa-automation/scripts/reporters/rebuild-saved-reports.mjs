@@ -69,11 +69,12 @@ export function rebuildReportChannel(reportsBase, channel, options = {}) {
   runs.sort(compareRunsNewestFirst);
   const newest = runs[0];
   const currentLatest = readSummary(path.join(latestDir, "summary.json"));
-  if (
-    currentLatest?.runId !== newest.summary.runId ||
-    !reportIsCurrent(latestDir, channel)
-  ) {
+  if (currentLatest?.runId !== newest.summary.runId) {
     replaceDirectory(newest.outputDir, latestDir);
+    writeSummaryFiles(latestDir, newest.summary, channelRoot);
+  } else if (!reportIsCurrent(latestDir, channel)) {
+    // The evidence tree can be many gigabytes. When latest already points to the
+    // newest run, only refresh its generated report files instead of copying it.
     writeSummaryFiles(latestDir, newest.summary, channelRoot);
   }
   writeReportHistory(channelRoot, definition.landingPage);
