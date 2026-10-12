@@ -49,7 +49,7 @@ def qaRuntimeEnv() {
     "QA_RUN_SCOPE=${hasText(params.CATALOG_ITEM_IDS) ? 'Selected items' : hasText(params.CATALOG_MAX_ITEMS) && params.CATALOG_MAX_ITEMS != '0' ? 'Sample run' : profile == 'nightly-full' ? 'Full catalog requested' : 'Sample run'}",
     "CI=true",
     "QA_HEADED=false",
-    "QA_TRACE=retain-on-failure",
+    "QA_TRACE=${isRetestRun() ? 'retain-on-failure' : 'off'}",
     "QA_VIDEO=off",
     "QA_SCREENSHOT=only-on-failure",
     "QA_FULL_PAGE_SCREENSHOT=true",

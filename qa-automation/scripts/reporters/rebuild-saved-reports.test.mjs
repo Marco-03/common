@@ -121,7 +121,7 @@ test("selects the newest immutable run as latest and preserves every saved run",
   }
 });
 
-test("refreshes an outdated latest report in place when it already has the newest run", () => {
+test("replaces a legacy latest report with a pointer to the newest immutable run", () => {
   const reportsBase = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-report-refresh-"));
 
   try {
@@ -131,18 +131,13 @@ test("refreshes an outdated latest report in place when it already has the newes
     fs.mkdirSync(path.join(latestDir, "evidence"), { recursive: true });
     fs.writeFileSync(path.join(latestDir, "summary.json"), JSON.stringify(summary), "utf-8");
     fs.writeFileSync(path.join(latestDir, "summary.html"), "old report layout", "utf-8");
-    fs.writeFileSync(path.join(latestDir, "evidence", "keep.txt"), "saved evidence", "utf-8");
+    fs.writeFileSync(path.join(latestDir, "evidence", "legacy-copy.txt"), "old evidence", "utf-8");
 
     rebuildSavedReports(reportsBase, { channels: ["regression"] });
 
-    assert.match(
-      fs.readFileSync(path.join(latestDir, "summary.html"), "utf-8"),
-      /Overall regression results/,
-    );
-    assert.equal(
-      fs.readFileSync(path.join(latestDir, "evidence", "keep.txt"), "utf-8"),
-      "saved evidence",
-    );
+    assert.ok(fs.lstatSync(latestDir).isSymbolicLink());
+    assert.match(fs.readFileSync(path.join(latestDir, "summary.html"), "utf-8"), /Overall regression results/);
+    assert.equal(fs.existsSync(path.join(latestDir, "evidence", "legacy-copy.txt")), false);
   } finally {
     fs.rmSync(reportsBase, { recursive: true, force: true });
   }
@@ -206,6 +201,7 @@ test("Jenkins keeps saved reports without archiving the duplicate Playwright art
   assert.doesNotMatch(jenkinsfile, /archiveArtifacts\([\s\S]*artifacts\/jenkins\/\*\*\/\*/);
   assert.match(jenkinsfile, /junit\(testResults: "qa-automation\/artifacts\/jenkins\/\*\*\/junit\.xml"/);
   assert.match(jenkinsfile, /dir\("qa-automation\/artifacts\/jenkins"\)\s*\{\s*deleteDir\(\)/);
+  assert.match(jenkinsfile, /QA_TRACE=\$\{isRetestRun\(\) \? 'retain-on-failure' : 'off'\}/);
 });
 
 function writeRun(reportsBase, summary, channel = "regression") {

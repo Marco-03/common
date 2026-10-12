@@ -259,16 +259,13 @@ export default class RootSummaryReporter {
     const endedAt = new Date();
     const runId = runIdentifier(this.startedAt);
     const runDir = path.join(this.reportsRoot, "runs", runId);
-    const latestDir = path.join(this.reportsRoot, "latest");
     const summary = this.summary(result, endedAt, runId);
 
     fs.mkdirSync(runDir, { recursive: true });
 
     writeSummaryFiles(runDir, summary, this.reportsRoot);
     if (summary.counts.total > 0) {
-      fs.rmSync(latestDir, { recursive: true, force: true });
-      fs.mkdirSync(latestDir, { recursive: true });
-      writeSummaryFiles(latestDir, summary, this.reportsRoot);
+      replaceLatestReportWithRun(this.reportsRoot, runDir);
       writeReportHistory(this.reportsRoot, this.landingPage);
     }
   }
@@ -769,7 +766,7 @@ function buildBugSummary({
 }
 
 export function writeSummaryFiles(outputDir, summary, reportsRoot) {
-  const historyHref = summary.previewMode ? "/regression/" : relativeReportHref(outputDir, path.join(reportsRoot, "index.html"));
+  const historyHref = summary.previewMode ? "/regression/" : reportHistoryHref(reportsRoot);
   const pageContext = {
     outputDir,
     historyHref,
@@ -786,6 +783,52 @@ export function writeSummaryFiles(outputDir, summary, reportsRoot) {
   fs.writeFileSync(path.join(outputDir, "retest-list.html"), withClient(reviewListPageHtml(summary, pageContext).replace('<body>', '<body class="retest-page">')), "utf-8");
   fs.rmSync(path.join(outputDir, "fix-list.html"), { force: true });
   writeParAuditDataFiles(outputDir, summary.parAudit);
+}
+
+export function replaceLatestReportWithRun(reportsRoot, runDir) {
+  const channelRoot = path.resolve(reportsRoot);
+  const latestDir = path.join(channelRoot, "latest");
+  const resolvedRunDir = path.resolve(runDir);
+  const runsRoot = `${path.join(channelRoot, "runs")}${path.sep}`;
+  if (!resolvedRunDir.startsWith(runsRoot)) {
+    throw new Error(`Latest report target must be inside ${runsRoot}`);
+  }
+
+  const suffix = `${process.pid}-${Date.now()}`;
+  const nextLink = path.join(channelRoot, `.latest-next-${suffix}`);
+  const backupPath = path.join(channelRoot, `.latest-previous-${suffix}`);
+  fs.rmSync(nextLink, { recursive: true, force: true });
+  fs.rmSync(backupPath, { recursive: true, force: true });
+
+  const target = process.platform === "win32"
+    ? resolvedRunDir
+    : path.relative(channelRoot, resolvedRunDir);
+  fs.symlinkSync(target, nextLink, process.platform === "win32" ? "junction" : "dir");
+
+  let movedExisting = false;
+  try {
+    if (pathExists(latestDir)) {
+      fs.renameSync(latestDir, backupPath);
+      movedExisting = true;
+    }
+    fs.renameSync(nextLink, latestDir);
+    if (movedExisting) fs.rmSync(backupPath, { recursive: true, force: true });
+  } catch (error) {
+    fs.rmSync(nextLink, { recursive: true, force: true });
+    if (movedExisting && !pathExists(latestDir) && pathExists(backupPath)) {
+      fs.renameSync(backupPath, latestDir);
+    }
+    throw error;
+  }
+}
+
+function pathExists(candidate) {
+  try {
+    fs.lstatSync(candidate);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sectionFromFile(file) {
@@ -2647,7 +2690,7 @@ function htmlSummary(summary, context = {}) {
     });
     updateReviewCounts();
   </script>
-  ${context.isLatest ? latestSummaryRefreshScript(summary.runId) : ""}
+  ${latestSummaryRefreshScript(summary.runId)}
 </body>
 </html>`;
 }
@@ -2655,6 +2698,7 @@ function htmlSummary(summary, context = {}) {
 function latestSummaryRefreshScript(runId) {
   return `<script>
     (() => {
+      if (!/\\/latest\\/summary\\.html$/i.test(window.location.pathname)) return;
       const loadedRunId = ${JSON.stringify(String(runId || ""))};
       window.setInterval(async () => {
         try {
@@ -2666,6 +2710,11 @@ function latestSummaryRefreshScript(runId) {
       }, 15000);
     })();
   </script>`;
+}
+
+function reportHistoryHref(reportsRoot) {
+  const channel = path.basename(path.resolve(reportsRoot)).replace(/[^a-z0-9_-]/gi, "");
+  return channel ? `/${channel}/index.html` : "/regression/";
 }
 
 function buildReviewEntries(items, runId) {

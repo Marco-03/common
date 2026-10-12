@@ -10,9 +10,31 @@ import {
   issueDetailHtml,
   reportHistoryPageHtml,
   resultsCsv,
+  replaceLatestReportWithRun,
   writeReportHistory,
   writeSummaryFiles,
 } from "./root-summary-reporter.mjs";
+
+test("points latest at the immutable run without copying its evidence", () => {
+  const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-latest-pointer-"));
+
+  try {
+    const runDir = path.join(reportsRoot, "runs", "2026-10-12T09-00-00-000Z");
+    const latestDir = path.join(reportsRoot, "latest");
+    fs.mkdirSync(path.join(runDir, "evidence"), { recursive: true });
+    fs.mkdirSync(path.join(latestDir, "evidence"), { recursive: true });
+    fs.writeFileSync(path.join(runDir, "evidence", "canonical.txt"), "run evidence", "utf-8");
+    fs.writeFileSync(path.join(latestDir, "evidence", "duplicate.txt"), "old copy", "utf-8");
+
+    replaceLatestReportWithRun(reportsRoot, runDir);
+
+    assert.ok(fs.lstatSync(latestDir).isSymbolicLink());
+    assert.equal(fs.readFileSync(path.join(latestDir, "evidence", "canonical.txt"), "utf-8"), "run evidence");
+    assert.equal(fs.existsSync(path.join(latestDir, "evidence", "duplicate.txt")), false);
+  } finally {
+    fs.rmSync(reportsRoot, { recursive: true, force: true });
+  }
+});
 
 test("a passing retry replaces the failed attempt everywhere", () => {
   const reporter = new RootSummaryReporter();

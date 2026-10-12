@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   REGRESSION_REPORT_RENDERER_VERSION,
+  replaceLatestReportWithRun,
   writeReportHistory,
   writeSummaryFiles,
 } from "./root-summary-reporter.mjs";
@@ -40,7 +41,7 @@ export function rebuildReportChannel(reportsBase, channel, options = {}) {
   if (isUsableSummary(latestSummary)) {
     const immutableRun = path.join(runsRoot, latestSummary.runId);
     if (!fs.existsSync(path.join(immutableRun, "summary.json"))) {
-      fs.cpSync(latestDir, immutableRun, { recursive: true });
+      fs.renameSync(latestDir, immutableRun);
       restoredLatestRun = true;
     }
   }
@@ -68,15 +69,7 @@ export function rebuildReportChannel(reportsBase, channel, options = {}) {
 
   runs.sort(compareRunsNewestFirst);
   const newest = runs[0];
-  const currentLatest = readSummary(path.join(latestDir, "summary.json"));
-  if (currentLatest?.runId !== newest.summary.runId) {
-    replaceDirectory(newest.outputDir, latestDir);
-    writeSummaryFiles(latestDir, newest.summary, channelRoot);
-  } else if (!reportIsCurrent(latestDir, channel)) {
-    // The evidence tree can be many gigabytes. When latest already points to the
-    // newest run, only refresh its generated report files instead of copying it.
-    writeSummaryFiles(latestDir, newest.summary, channelRoot);
-  }
+  replaceLatestReportWithRun(channelRoot, newest.outputDir);
   writeReportHistory(channelRoot, definition.landingPage);
   log(
     `Prepared ${runs.length} saved ${channel} report${runs.length === 1 ? "" : "s"}; latest is ${newest.summary.runId}.`,
@@ -147,31 +140,6 @@ function compareRunsNewestFirst(left, right) {
     return rightTime - leftTime;
   }
   return String(right.summary.runId).localeCompare(String(left.summary.runId));
-}
-
-function replaceDirectory(sourceDir, targetDir) {
-  const parentDir = path.dirname(targetDir);
-  const temporaryDir = path.join(parentDir, `.latest-rebuild-${process.pid}-${Date.now()}`);
-  const backupDir = path.join(parentDir, `.latest-backup-${process.pid}-${Date.now()}`);
-  fs.rmSync(temporaryDir, { recursive: true, force: true });
-  fs.rmSync(backupDir, { recursive: true, force: true });
-  fs.cpSync(sourceDir, temporaryDir, { recursive: true });
-
-  let movedExisting = false;
-  try {
-    if (fs.existsSync(targetDir)) {
-      fs.renameSync(targetDir, backupDir);
-      movedExisting = true;
-    }
-    fs.renameSync(temporaryDir, targetDir);
-    fs.rmSync(backupDir, { recursive: true, force: true });
-  } catch (error) {
-    fs.rmSync(temporaryDir, { recursive: true, force: true });
-    if (movedExisting && !fs.existsSync(targetDir) && fs.existsSync(backupDir)) {
-      fs.renameSync(backupDir, targetDir);
-    }
-    throw error;
-  }
 }
 
 function parseArguments(argv) {

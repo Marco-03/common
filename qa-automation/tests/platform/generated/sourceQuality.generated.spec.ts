@@ -29,6 +29,10 @@ const GENERATED_SOURCE_QUALITY_TAGS = [
 const loadResult = loadCatalogIndex();
 const workshopItems = catalogIndexItems("workshop");
 
+// Source findings already include the exact Markdown line and replacement. A
+// browser trace only repeats the page navigation and makes full scans enormous.
+test.use({ trace: "off", screenshot: "off" });
+
 test.describe("LiveLabs generated workshop source quality", { tag: GENERATED_SOURCE_QUALITY_TAGS }, () => {
   test.describe.configure({ timeout: 720_000 });
 
