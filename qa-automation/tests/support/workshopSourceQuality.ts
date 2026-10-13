@@ -45,7 +45,8 @@ export async function collectWorkshopSourceQualityIssues(
   if (scanErrors.length) issues.push(contentQualityIssue(
     "SOURCE_SCAN_INCOMPLETE", "Some instruction pages could not be checked", "minor",
     `The workshop opened, but ${scanErrors.length} source page(s) could not be read. ${documents.length} page(s) were checked.`,
-    scanErrors.map((error) => ({ label: error.label, pageUrl: error.page_url, sourceFileUrl: error.source_file_url, error: error.error, location: error.label,
+    scanErrors.map((error) => ({ label: error.label, pageUrl: error.page_url, sourceFileUrl: error.source_file_url,
+      labNumber: error.lab_number, error: error.error, location: error.label,
       suggestion: "Open this lab. If it is blank or missing, restore its Markdown file or correct the manifest path. If it opens correctly, investigate the source fetch before changing workshop content." })),
   ));
 
@@ -132,10 +133,6 @@ export function inspectMarkdownFormatting(document: WorkshopSourceDocument): Sou
         }
       }
     }
-    for (const match of line.matchAll(/\][ \t]+\(/g)) {
-      details.push(sourceDetail(document, lines, lineIndex, "Link contains a space before (", match[0], "Remove the space between ] and ( so the Markdown link renders."));
-    }
-
     if (!/^\s*\*{3,}\s*$/.test(line)) {
       for (const match of line.matchAll(/(?<!\\)\*\*/g)) strongMarkers.push({ line: lineIndex, marker: "**" });
     }
@@ -143,12 +140,15 @@ export function inspectMarkdownFormatting(document: WorkshopSourceDocument): Sou
   }
 
   if (fence) {
-    details.push(sourceDetail(document, lines, fence.line, "Code block is not closed", lines[fence.line].trim(), `Add a closing ${fence.marker} fence.`));
+    const hasContentAfterFence = lines.slice(fence.line + 1).some((line) => line.trim().length > 0);
+    if (lines[fence.line].trim() !== fence.marker || hasContentAfterFence) {
+      details.push(sourceDetail(document, lines, fence.line, "Code block is not closed", lines[fence.line].trim(), `Add a closing ${fence.marker} fence.`));
+    }
   }
 
   for (const marker of ["**", "__"] as const) {
     const markers = strongMarkers.filter((entry) => entry.marker === marker);
-    if (markers.length % 2 === 1) {
+    if (markers.length % 2 === 1 && renderedMarkdownContainsLiteralMarker(document.text, marker)) {
       const last = markers.at(-1);
       if (last) details.push(sourceDetail(document, lines, last.line, `Unmatched ${marker} marker`, marker, `Add or remove a ${marker} marker so the bold text has a matching pair.`));
     }
@@ -182,12 +182,14 @@ export function inspectWritingGrammar(document: WorkshopSourceDocument): SourceQ
     }
     for (const match of line.matchAll(/\b[A-Za-z]+[ \t]+(?:[,;!?]|\.(?![A-Za-z0-9]))/g)) {
       const matchEnd = (match.index || 0) + match[0].length;
+      if (match[0].endsWith(".") && line.slice(matchEnd, matchEnd + 2) === "..") continue;
       if (match[0].trimEnd().endsWith("!") && line[matchEnd] === "[") continue;
       if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Space before punctuation", match[0], "Remove the space before the punctuation mark."));
     }
     for (const match of line.matchAll(/[,;:!?][A-Za-z]/g)) {
       if (match[0].startsWith(";") && isHtmlEntityTerminator(line, match.index || 0)) continue;
+      if (match[0].startsWith(":") && isApexBindVariableAtOffset(rawLine, match.index || 0)) continue;
       if (!sourceLineContainsMarker(rawLine, match[0])) continue;
       details.push(sourceDetail(document, lines, lineIndex, "Missing space after punctuation", match[0], "Add a space after the punctuation mark."));
     }
@@ -212,6 +214,10 @@ function isHtmlEntityTerminator(line: string, semicolonIndex: number): boolean {
   return /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+)$/i.test(line.slice(0, semicolonIndex));
 }
 
+function isApexBindVariableAtOffset(line: string, colonIndex: number): boolean {
+  return /^:P\d+(?:\\?_)[A-Za-z0-9_]+/i.test(line.slice(colonIndex));
+}
+
 export async function inspectPossibleTypos(document: WorkshopSourceDocument): Promise<SourceQualityDetail[]> {
   const text = maskMarkdownNonProse(document.text, document.renderedUrl);
   if (hasStrongSpanishOrPortugueseSignal(text)) return [];
@@ -234,8 +240,9 @@ export async function inspectPossibleTypos(document: WorkshopSourceDocument): Pr
     const word = issue.text || "";
     const suggestion = issue.suggestions?.[0] || "";
     const lineIndex = lineIndexAtOffset(text, issue.offset);
+    const columnIndex = columnIndexAtOffset(text, issue.offset);
     const key = `${word.toLowerCase()}|${lineIndex}`;
-    if (!isHighConfidenceTypo(word, suggestion) || seen.has(key)) continue;
+    if (!isHighConfidenceTypo(word, suggestion) || isTechnicalTokenAtSourceOffset(lines[lineIndex] || "", word, columnIndex) || seen.has(key)) continue;
     seen.add(key);
     details.push(
       sourceDetail(
@@ -250,6 +257,24 @@ export async function inspectPossibleTypos(document: WorkshopSourceDocument): Pr
   }
 
   return details;
+}
+
+function renderedMarkdownContainsLiteralMarker(text: string, marker: "**" | "__"): boolean {
+  // Valid emphasis is consumed by Markdown rendering. A literal marker remains visible text.
+  const tokens = new MarkdownIt({ html: true }).parse(text, {}) as Array<{
+    type: string;
+    children?: Array<{ type: string; content: string }>;
+  }>;
+  return tokens.some((token) => token.type === "inline" && token.children?.some((child) => child.type === "text" && child.content.includes(marker)));
+}
+
+function isTechnicalTokenAtSourceOffset(sourceLine: string, word: string, columnIndex: number): boolean {
+  if (sourceLine.slice(columnIndex, columnIndex + word.length).toLowerCase() !== word.toLowerCase()) return false;
+  const left = sourceLine.slice(0, columnIndex).replace(/[*_`]+$/, "");
+  const right = sourceLine.slice(columnIndex + word.length).replace(/^[*_`]+/, "");
+  const before = left.at(-1) || "";
+  const after = right[0] || "";
+  return /[:._\\\\-]/.test(before) || /[:._\\\\-]/.test(after);
 }
 
 function sourceDetail(
@@ -295,6 +320,14 @@ function maskMarkdownNonProse(text: string, renderedUrl: string): string {
   for (const token of new MarkdownIt({ html: true }).parse(prepared, {})) {
     if (!["fence", "code_block"].includes(token.type) || !token.map) continue;
     for (let index = token.map[0]; index < token.map[1]; index++) lines[index] = maskValue(lines[index]);
+  }
+  // Fence info strings such as `nohighlight` are renderer controls, not prose.
+  // Mask delimiter lines even when an orphaned fence prevents MarkdownIt from
+  // recognizing a complete code block.
+  for (let index = 0; index < lines.length; index++) {
+    if (/^\s*(?:`{3,}|~{3,})[^\r\n]*(?:\r?\n)?$/.test(lines[index])) {
+      lines[index] = maskValue(lines[index]);
+    }
   }
   return lines.map(maskNonProse).join("");
 }
@@ -381,6 +414,11 @@ function transpositionAwareDistance(left: string, right: string): number {
 
 function lineIndexAtOffset(text: string, offset: number): number {
   return text.slice(0, Math.max(0, offset)).split(/\r?\n/).length - 1;
+}
+
+function columnIndexAtOffset(text: string, offset: number): number {
+  const safeOffset = Math.max(0, offset);
+  return safeOffset - (text.lastIndexOf("\n", safeOffset - 1) + 1);
 }
 
 function deduplicateDetails(details: SourceQualityDetail[]): SourceQualityDetail[] {

@@ -203,7 +203,8 @@ export async function loadWorkshopSourceDocuments(page: Page): Promise<{ documen
       documents.push({ ...tutorial, text });
     } catch (error) {
       scanErrors.push({ page_type: "workshop-source", page_url: sanitizeSourceUrl(tutorial.renderedUrl),
-        source_file_url: sanitizeSourceUrl(tutorial.sourceUrl), label: tutorial.label, error: safeError(error) });
+        source_file_url: sanitizeSourceUrl(tutorial.sourceUrl), lab_number: tutorial.labNumber,
+        label: tutorial.label, error: safeError(error) });
     }
   });
 

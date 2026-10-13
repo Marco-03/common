@@ -140,6 +140,85 @@ test("does not create punctuation findings from Markdown images, entities, or ma
   ]);
 });
 
+test("ignores technical tokens and deliberately spaced acronyms", async () => {
+  const document = source([
+    "Use training-**dcat**-instance and workshop-data-lake-accelerator.**dsnb**.",
+    "Set :P3\\_QUESTION and :P3\\_ID before continuing.",
+    "Use SSH ... exactly as documented.",
+  ].join("\n"));
+
+  expect(await inspectPossibleTypos(document)).toEqual([]);
+  expect(inspectWritingGrammar(document)).toEqual([]);
+});
+
+test("keeps real punctuation findings beside technical syntax", () => {
+  const document = source([
+    "Use OCI . in this sentence.",
+    "Set :P3\\_QUESTION, then review value:Next.",
+  ].join("\n"));
+
+  expect(inspectWritingGrammar(document)).toEqual([
+    expect.objectContaining({ label: "Space before punctuation", marker: "OCI .", sourceLine: 1 }),
+    expect.objectContaining({ label: "Missing space after punctuation", marker: ":N", sourceLine: 2 }),
+  ]);
+});
+
+test("applies technical-token exclusions only to the exact occurrence", async () => {
+  const document = source("Use training-**dcat**-instance, but dcat in this prose sentence still needs review.");
+  const typos = await inspectPossibleTypos(document);
+
+  expect(typos).toEqual([
+    expect.objectContaining({ label: "Possible typo: dcat", marker: "dcat" }),
+  ]);
+});
+
+test("does not report valid rendered emphasis as an unmatched marker", () => {
+  const document = source("* **Last Updated By/Date** - Perside Foster, MySQL Solution Engineering, December 2024");
+  expect(inspectMarkdownFormatting(document)).toEqual([]);
+});
+
+test("does not report valid emphasis when punctuation is inside the bold text", () => {
+  const document = source("- **Last Updated By/Date-** Senthilkumar Chinnappa, August 2024");
+  expect(inspectMarkdownFormatting(document)).toEqual([]);
+});
+
+test("does not spellcheck fenced-code language and renderer controls", async () => {
+  const document = source([
+    "```nohighlight",
+    "ssh opc@example.test",
+    "```",
+  ].join("\n"));
+
+  expect(await inspectPossibleTypos(document)).toEqual([]);
+});
+
+test("does not spellcheck an orphaned fence control line", async () => {
+  const document = source("```nohighlight");
+  expect(await inspectPossibleTypos(document)).toEqual([]);
+});
+
+test("accepts LiveLabs link spacing and standalone closing fences that render correctly", () => {
+  const document = source([
+    "[Video Walk-through] (https://www.youtube.com/watch?v=example)",
+    "",
+    "Some rendered content.",
+    "```",
+  ].join("\n"));
+
+  expect(inspectMarkdownFormatting(document)).toEqual([]);
+});
+
+test("still reports a bare opening fence when content follows it", () => {
+  const document = source([
+    "```",
+    "content that remains inside the fence",
+  ].join("\n"));
+
+  expect(inspectMarkdownFormatting(document)).toEqual([
+    expect.objectContaining({ label: "Code block is not closed", sourceLine: 1 }),
+  ]);
+});
+
 test("does not apply the English typo dictionary to Spanish or Portuguese prose", async () => {
   const document = source("Seleccione el compartimento para crear los datos. Luego haga clic y use el nombre disponible en la pantalla.");
   expect(await inspectPossibleTypos(document)).toEqual([]);

@@ -187,7 +187,13 @@ function slugify(value) {
     .slice(0, 80);
 }
 
-function catalogIdentityKey(item) {
+export function catalogIdentityKey(item) {
+  const id = String(item.id || "").trim();
+  if (/^\d+$/.test(id)) {
+    // A catalog item can appear under both a generic product facet and its real
+    // Sprint/event facet. Use the stable LiveLabs ID so the richer type wins.
+    return `${item.type === "livestack" ? "livestack" : "catalog"}:${id}`;
+  }
   return slugify(item.title) || item.normalized_href;
 }
 

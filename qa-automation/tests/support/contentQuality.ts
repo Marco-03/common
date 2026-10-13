@@ -444,8 +444,9 @@ async function collectBrokenLinkIssues(page: Page, options: ContentQualityOption
   }
 
   recordLinkCoverage(linksToCheck.length, candidates.length, unverified.length);
-  const coverageIssues = unverified.length ? [contentQualityIssue("LINK_CHECK_INCOMPLETE", "Some links could not be verified", "minor", "These links could not be verified because of authentication, rate limits, or a network failure. This is not a confirmed broken link.", unverified)] : [];
-  if (brokenLinks.length === 0) return coverageIssues;
+  // A HEAD followed by GET already covers ordinary servers that reject HEAD. Do not
+  // turn temporary authentication, rate-limit, or network problems into findings.
+  if (brokenLinks.length === 0) return [];
 
   return [
     contentQualityIssue(
@@ -461,7 +462,6 @@ async function collectBrokenLinkIssues(page: Page, options: ContentQualityOption
         brokenLinks,
       },
     ),
-    ...coverageIssues,
   ];
 }
 

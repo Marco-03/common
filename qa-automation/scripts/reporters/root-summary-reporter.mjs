@@ -3589,7 +3589,7 @@ function failureCard(failure, index, context) {
   const issueCodes = Array.from(new Set(issues.map((issue) => issue.code)));
   const isBlocker = issues.some((issue) => issue.severity === "blocker");
   const isParFinding = hasParAuditIssues(issues);
-  const issueCountLabel = `${issues.length} issue${issues.length === 1 ? "" : "s"} found`;
+  const issueCountLabel = findingSummaryLabel(issues);
 
   return `<details class="failure-card ${isBlocker ? "blocker" : ""}" data-category="${escapeAttribute(issueCodes.join(" "))}">
     <summary class="failure-header">
@@ -3801,7 +3801,7 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
         <summary>Download CSV</summary>
         <div>
           <p>Use this file for bulk review, spreadsheets, or Codex.</p>
-          <a href="results.csv"><strong>All test results</strong><span>${escapeHtml(String(items.length))} items</span></a>
+          <a href="results.csv" download="livelabs-qa-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>All test results</strong><span>${escapeHtml(String(items.length))} items</span></a>
         </div>
       </details>
     </div>
@@ -3897,6 +3897,7 @@ function testedItemRowHtml(item, runId, failures, context) {
   const priority = itemPriority(item);
   const blockerCount = issues.filter((issue) => issue.severity === "blocker").length;
   const issueCount = Number(item.issueCount ?? issues.length);
+  const findingCount = issueFindingCount(issues);
   const checkCount = Number(item.counts?.total ?? tests.length);
   const issueLabel =
     item.status === "failed"
@@ -3904,7 +3905,7 @@ function testedItemRowHtml(item, runId, failures, context) {
         ? `${blockerCount} hard blocker${blockerCount === 1 ? "" : "s"}`
         : issueCount === 1
           ? `${issueDisplayLabel(issues[0])}`
-          : `${issueCount} separate issues`
+          : `${issueCount} categories · ${findingCount} finding${findingCount === 1 ? "" : "s"}`
       : item.status === "passed"
         ? "No issues found"
         : issues.length === 1
@@ -3968,7 +3969,7 @@ function itemDetailHtml(item, failures, context) {
       ? "Could not check"
       : issues.length === 0
       ? "No issues found"
-      : `${issues.length} issue${issues.length === 1 ? "" : "s"} found`;
+      : findingSummaryLabel(issues);
 
   return `<div class="result-details">
     <div class="item-detail-heading">
@@ -4066,6 +4067,7 @@ function operatorIssueHtml(issue, index, item, context) {
   const location = issueLocationForItem(issue, item);
   const reproduction = operatorIssueReproduction(issue, item);
   const sourceQualityIssue = ["MARKDOWN_FORMATTING", "WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(issue.code);
+  const showLocationFooter = !sourceQualityIssue && issue.code !== "SOURCE_SCAN_INCOMPLETE";
 
   return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
     <div class="operator-issue-heading">
@@ -4079,7 +4081,7 @@ function operatorIssueHtml(issue, index, item, context) {
       <p><strong>What to change:</strong> ${escapeHtml(operatorIssueAction(issue, item))}</p>
     </div>`}
     ${affected}
-    ${sourceQualityIssue ? "" : `<div class="issue-location-block">
+    ${showLocationFooter ? `<div class="issue-location-block">
       <div class="issue-location-row">
         <div class="issue-location-copy">
           <span>Where to change it</span>
@@ -4088,7 +4090,7 @@ function operatorIssueHtml(issue, index, item, context) {
         </div>
         ${location.url ? externalActionLinkHtml(location.url, location.actionLabel || "Open this page") : ""}
       </div>
-    </div>`}
+    </div>` : ""}
   </section>`;
 }
 
@@ -4106,7 +4108,7 @@ function linkCoverageSummaryHtml(tests) {
     return coverage;
   }, { checked: 0, found: 0, unverified: 0 });
   if (totals.checked === 0 && totals.found === 0 && totals.unverified === 0) return "";
-  return `<small>Links checked: ${escapeHtml(String(totals.checked))} of ${escapeHtml(String(totals.found))}${totals.unverified ? ` · ${escapeHtml(String(totals.unverified))} could not be verified` : ""}</small>`;
+  return `<small>Links checked: ${escapeHtml(String(totals.checked))} of ${escapeHtml(String(totals.found))}</small>`;
 }
 
 function parOperatorIssueHtml(issue, index, item, context) {
@@ -4147,7 +4149,7 @@ function parOperatorEntryHtml(detail, detailIndex, item, reviewId) {
     </div>
     <div class="issue-location-block">
       <div class="issue-location-heading">
-        <div><h5>Where to fix it</h5><p>${sources.length > 1 ? `${sources.length} places use this PAR link.` : "Exact lab and task from the workshop source."}</p></div>
+        <div><h5>Where to fix it</h5><p>${sources.length > 1 ? `${sources.length} places use this PAR link.` : "Exact lab and source section from the workshop Markdown."}</p></div>
       </div>
       <div class="par-source-list">${
         sources.length > 0
@@ -4186,8 +4188,8 @@ function unifiedParSourceHtml(source, catalogItem) {
   const sourceLabel = unifiedParSourceLabel(source, catalogItem);
   const labLabel = labNumber ? `Lab ${labNumber}: ${sourceLabel}` : sourceLabel;
   const details = [
-    source.section ? `Task: ${source.section}` : "",
-    source.instruction ? unifiedParStepLabel(source.instruction) : "",
+    source.section ? `Source section: ${source.section}` : "",
+    source.instruction ? `Nearby instruction: ${unifiedParStepLabel(source.instruction)}` : "",
     source.sourceLine ? `Markdown line ${source.sourceLine}` : source.location || "",
   ].filter(Boolean);
 
@@ -4235,6 +4237,29 @@ function unifiedParStepLabel(instruction) {
   const numbered = value.match(/^(?:Step\s+)?(\d+)[.)]?\s*(.*)$/i);
   if (!numbered) return `Step: ${value}`;
   return `Step ${numbered[1]}${numbered[2] ? `: ${numbered[2]}` : ""}`;
+}
+
+function issueFindingCount(issues) {
+  return (issues || []).reduce((count, issue) => {
+    const details = operatorIssueDetails(issue);
+    return count + (details.length || 1);
+  }, 0);
+}
+
+function findingSummaryLabel(issues) {
+  const categories = (issues || []).length;
+  const findings = issueFindingCount(issues);
+  return `${categories} categor${categories === 1 ? "y" : "ies"} · ${findings} finding${findings === 1 ? "" : "s"}`;
+}
+
+function csvTimestamp(runId) {
+  const normalizedRunId = String(runId || "").replace(
+    /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-\d{3}Z$/,
+    "$1T$2:$3:$4Z",
+  );
+  const parsed = Date.parse(normalizedRunId);
+  const date = Number.isNaN(parsed) ? new Date() : new Date(parsed);
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
 function unifiedParTechnicalHtml(detail, sources) {
@@ -4468,7 +4493,8 @@ function operatorIssueAffectedItemsHtml(issue, item) {
 
   const entries = details
     .map((detail, index) => operatorIssueDetail(detail, index, item, issue))
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((left, right) => affectedItemOrder(left, right, issue));
 
   if (entries.length === 0) {
     return "";
@@ -4487,6 +4513,20 @@ function operatorIssueAffectedItemsHtml(issue, item) {
           ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, entry.actionLabel || catalogItemOpenLabel(item?.catalogItem?.type)) : ""}
         </div>`).join("")}
   </div>`;
+}
+
+function affectedItemOrder(left, right, issue) {
+  if (issue.code !== "SOURCE_SCAN_INCOMPLETE") return 0;
+  const leftLab = affectedItemLabNumber(left);
+  const rightLab = affectedItemLabNumber(right);
+  if (leftLab !== rightLab) return leftLab - rightLab;
+  return String(left.label || "").localeCompare(String(right.label || ""), undefined, { numeric: true });
+}
+
+function affectedItemLabNumber(entry) {
+  if (Number(entry?.labNumber) > 0) return Number(entry.labNumber);
+  const match = String(entry?.label || entry?.location || "").match(/\bLab\s+(\d+)\b/i);
+  return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }
 
 function sourceQualityAffectedItemHtml(entry, item) {

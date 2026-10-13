@@ -348,8 +348,8 @@ export class WorkshopInstructionsPage extends BasePage {
     }
 
     recordLinkCoverage(linksToCheck.length, candidates.length, unverified.length);
-    const coverageIssues = unverified.length ? [contentQualityIssue("LINK_CHECK_INCOMPLETE", "Some links could not be verified", "minor", "These links need another check because authentication, rate limits, or a network failure prevented verification. They are not confirmed broken.", unverified)] : [];
-    if (brokenLinks.length === 0) return coverageIssues;
+    // HEAD falls back to GET. Remaining transient failures are not workshop defects.
+    if (brokenLinks.length === 0) return [];
     await this.highlightBrokenLinks(contentBody, brokenLinks);
     const sourceLocations = await locateWorkshopSourceLinks(
       this.page,
@@ -384,7 +384,6 @@ export class WorkshopInstructionsPage extends BasePage {
           brokenLinks: locatedBrokenLinks,
         },
       ),
-      ...coverageIssues,
     ];
   }
 

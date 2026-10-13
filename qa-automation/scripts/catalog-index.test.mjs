@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildCatalogItem,
+  catalogIdentityKey,
   catalogItemTypeFromCard,
   explicitCatalogId,
   mergeCatalogDuplicates,
@@ -66,4 +67,29 @@ test("merges duplicate catalog titles into one canonical item", () => {
   const second = { id: "4252", type: "workshop", title: "HeatWave", normalized_href: "https://example.test/4252" };
   assert.deepEqual(mergeCatalogDuplicates(first, second).duplicate_ids, ["3605", "4252"]);
   assert.deepEqual(mergeCatalogDuplicates(first, second).duplicate_urls, ["https://example.test/3605", "https://example.test/4252"]);
+});
+
+test("merges the same LiveLabs ID across generic and Sprint facets", () => {
+  const workshop = {
+    id: "3543",
+    type: "workshop",
+    title: "Como atualizar conjunto de dados no Oracle Analytics Cloud (OAC)?",
+    normalized_href: "https://example.test/view-workshop?wid=3543",
+  };
+  const sprint = {
+    id: "3543",
+    type: "sprint",
+    title: "Como atualizar conjunto de dados em Oracle Analytics Cloud (OAC)?",
+    normalized_href: "https://example.test/view-workshop?wid=3543&type=sprint",
+  };
+
+  assert.equal(catalogIdentityKey(workshop), catalogIdentityKey(sprint));
+  assert.equal(mergeCatalogDuplicates(workshop, sprint).type, "sprint");
+});
+
+test("keeps a LiveStack ID separate from the same LiveLabs content ID", () => {
+  const sprint = { id: "3543", type: "sprint", title: "Sprint", normalized_href: "https://example.test/sprint" };
+  const livestack = { id: "3543", type: "livestack", title: "LiveStack", normalized_href: "https://example.test/livestack" };
+
+  assert.notEqual(catalogIdentityKey(sprint), catalogIdentityKey(livestack));
 });

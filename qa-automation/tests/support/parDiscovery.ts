@@ -92,7 +92,16 @@ export async function collectWorkshopInstructionParCandidates(
   const sourceDiscovery = await collectWorkshopSourceParCandidates(page, source, seenSourceFiles);
   scanErrors.push(...sourceDiscovery.scanErrors);
   if (sourceDiscovery.handled) {
-    candidates.push(...sourceDiscovery.candidates);
+    const renderedUrls = new Set(candidates.map((candidate) => normalizedPageKey(candidate.url)));
+    const activePageKeys = new Set(page.frames().map((frame) => normalizedPageKey(frame.url())));
+    candidates.push(...sourceDiscovery.candidates.filter((candidate) => {
+      const sourceIsCurrentLab = candidate.sources.some((candidateSource) =>
+        activePageKeys.has(normalizedPageKey(candidateSource.pageUrl)),
+      );
+      // A raw Markdown fetch can lag the rendered LiveLabs lab. Do not report a
+      // source-only URL from the page the reader is actually viewing as broken.
+      return !sourceIsCurrentLab || renderedUrls.has(normalizedPageKey(candidate.url));
+    }));
     pagesScanned += sourceDiscovery.pagesScanned;
     return {
       candidates: mergeParCandidates(candidates),

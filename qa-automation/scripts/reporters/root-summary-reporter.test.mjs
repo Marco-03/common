@@ -710,6 +710,7 @@ test("renders source quality findings with plain fixes and exact lab links", () 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Markdown source to correct/);
+    assert.match(html, /3 categories · \d+ findings/);
     assert.match(html, /Grammar or punctuation to review/);
     assert.match(html, /Word to review/);
     assert.match(html, /Markdown line 18/);
@@ -732,6 +733,7 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.doesNotMatch(html, /sample_value/);
     assert.match(html, /Enter the sample sentence/);
     assert.match(html, /Open Lab 2/);
+    assert.match(html, /download="livelabs-qa-20260928T100000Z\.csv"/);
     assert.match(html, new RegExp(exactLabUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(html, new RegExp(exactLab4Url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(html, /Where to change it/);
@@ -942,8 +944,8 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
     assert.match(html, /Open workshop/);
     assert.match(html, /Where to fix it/);
     assert.match(html, /Lab 2: Harvest Metadata from Oracle Object Storage/);
-    assert.match(html, /Task: Add a connection to the moviestream_sandbox bucket/);
-    assert.match(html, /Step 2: In the Add Connection panel/);
+    assert.match(html, /Source section: Add a connection to the moviestream_sandbox bucket/);
+    assert.match(html, /Nearby instruction: Step 2: In the Add Connection panel/);
     assert.match(html, /Markdown line 612/);
     assert.match(html, /Download the moviestream_sandbox data asset/);
     assert.match(html, /Open exact lab/);
@@ -1015,6 +1017,52 @@ test("combines unavailable workshop routes and offers normal retest actions", ()
     assert.doesNotMatch(summaryHtml, /Stop scanning this workshop/);
     assert.doesNotMatch(summaryHtml, /data-exclusion-action/);
     assert.equal(fs.existsSync(path.join(outputDir, "excluded-workshops.html")), false);
+  } finally {
+    fs.rmSync(reportsRoot, { recursive: true, force: true });
+  }
+});
+
+test("orders incomplete source labs and omits the redundant location footer", () => {
+  const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-source-order-"));
+  const outputDir = path.join(reportsRoot, "latest");
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  try {
+    writeSummaryFiles(outputDir, {
+      runId: "2026-10-13T10-00-00-000Z",
+      reportChannel: "regression",
+      status: "failed",
+      startedAt: "2026-10-13T10:00:00.000Z",
+      endedAt: "2026-10-13T10:01:00.000Z",
+      durationMs: 60000,
+      counts: { total: 1, passed: 0, failed: 1, skipped: 0, timedOut: 0, interrupted: 0, unexpected: 1, flaky: 0 },
+      failureCategories: [{ code: "SOURCE_SCAN_INCOMPLETE", label: "Some instruction pages could not be checked", count: 1 }],
+      catalogItems: [{
+        key: "workshop-123",
+        status: "failed",
+        issueCount: 1,
+        counts: { total: 1 },
+        sections: ["Workshop Source Quality"],
+        catalogItem: { type: "workshop", id: "123", title: "Example workshop", absolute_url: "https://livelabs.oracle.com/example" },
+        issues: [{
+          code: "SOURCE_SCAN_INCOMPLETE",
+          label: "Some instruction pages could not be checked",
+          severity: "minor",
+          message: "Two source pages could not be read.",
+          details: [
+            { label: "Lab 6: Load additional data", location: "Lab 6: Load additional data", pageUrl: "https://example.test/?lab=6" },
+            { label: "Lab 5: Browse database objects", location: "Lab 5: Browse database objects", pageUrl: "https://example.test/?lab=5" },
+          ],
+        }],
+        tests: [{ section: "Workshop Source Quality", status: "failed", expectedStatus: "passed", file: "tests/platform/generated/workshopSourceQuality.generated.spec.ts", line: 20, attachments: [] }],
+      }],
+      failures: [],
+      sections: [],
+    }, reportsRoot);
+
+    const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
+    assert.ok(html.indexOf("Lab 5: Browse database objects") < html.indexOf("Lab 6: Load additional data"));
+    assert.doesNotMatch(html, /Where to change it/i);
   } finally {
     fs.rmSync(reportsRoot, { recursive: true, force: true });
   }
