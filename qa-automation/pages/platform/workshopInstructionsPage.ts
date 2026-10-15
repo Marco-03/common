@@ -18,6 +18,11 @@ interface InstructionContentQualityOptions {
   expectedTermsMode?: "all" | "any";
   linkLimit?: number;
   allowCustomVideoEmbeds?: boolean;
+  allowShortForm?: boolean;
+}
+
+interface InstructionLoadOptions {
+  allowShortForm?: boolean;
 }
 
 interface LinkCandidate {
@@ -48,12 +53,19 @@ export class WorkshopInstructionsPage extends BasePage {
     return this.page.locator("body");
   }
 
-  async assertLoaded(): Promise<void> {
+  async assertLoaded(options: InstructionLoadOptions = {}): Promise<void> {
     await this.waitForPageReady(WorkshopInstructionsPage.INSTRUCTIONS_READY_TIMEOUT_MS);
     await this.dismissCookieBannerIfPresent();
     await this.assertNotMigrationNotice();
 
-    const contentBody = await this.instructionContentBody();
+    const contentBody = await this.instructionContentBody(options.allowShortForm);
+
+    if (options.allowShortForm) {
+      await expect(contentBody).not.toHaveText(/^\s*$/, {
+        timeout: WorkshopInstructionsPage.INSTRUCTIONS_READY_TIMEOUT_MS,
+      });
+      return;
+    }
 
     await expect(contentBody).toContainText(/workshop|lab|instructions|introduction|task|overview/i, {
       timeout: WorkshopInstructionsPage.INSTRUCTIONS_READY_TIMEOUT_MS,
@@ -65,7 +77,7 @@ export class WorkshopInstructionsPage extends BasePage {
   }
 
   async assertContentQuality(options: InstructionContentQualityOptions, testInfo: TestInfo): Promise<void> {
-    const contentBody = await this.instructionContentBody();
+    const contentBody = await this.instructionContentBody(options.allowShortForm);
     const issues: ContentQualityIssue[] = [];
 
     issues.push(...(await this.collectObviousTextDefectIssues(contentBody, options.contextName)));
@@ -85,7 +97,7 @@ export class WorkshopInstructionsPage extends BasePage {
     assertNoContentQualityIssues(issues, options.contextName);
   }
 
-  private async instructionContentBody(): Promise<Locator> {
+  private async instructionContentBody(allowShortForm = false): Promise<Locator> {
     const candidates: Locator[] = [this.page.locator("main:visible").first(), this.body];
 
     for (const frame of this.page.frames()) {
@@ -99,6 +111,11 @@ export class WorkshopInstructionsPage extends BasePage {
 
     for (const candidate of candidates) {
       try {
+        if (allowShortForm) {
+          const text = (await candidate.innerText({ timeout: BasePage.OPTIONAL_LOAD_TIMEOUT_MS })).replace(/\s+/g, " ").trim();
+          if (text.length >= 80) return candidate;
+          continue;
+        }
         await expect(candidate).toContainText(/workshop|lab|instructions|introduction|task|overview/i, {
           timeout: BasePage.OPTIONAL_LOAD_TIMEOUT_MS,
         });

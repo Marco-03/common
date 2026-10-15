@@ -12,7 +12,7 @@ import {
   contentQualityIssue,
   type ContentQualityIssue,
 } from "../../support/contentQuality.js";
-import { openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
+import { isDirectPublishedInstructions, openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
 import { test } from "../../support/test.js";
 
 const GENERATED_WORKSHOP_TAGS = ["@generated", "@platform", "@overview", "@workshop", "@content", "@ui"];
@@ -66,21 +66,28 @@ test.describe("LiveLabs generated workshop overview pages", { tag: GENERATED_WOR
         const contextName = `Generated workshop overview: ${item.title}`;
         const issues: ContentQualityIssue[] = [];
 
-        await test.step("Check workshop overview shell", async () => {
-          try {
-            await workshopLandingPage.assertLoaded();
-          } catch (error) {
-            issues.push(
-              contentQualityIssue(
-                "OVERVIEW_STRUCTURE",
-                "Overview structure",
-                "major",
-                "The workshop route opened, but the overview page was missing expected controls or sections.",
-                { error: errorMessage(error) },
-              ),
-            );
-          }
-        });
+        if (isDirectPublishedInstructions(page)) {
+          testInfo.annotations.push({
+            type: "catalog-route",
+            description: "This catalog item opens published instructions directly, so an overview shell is not expected.",
+          });
+        } else {
+          await test.step("Check workshop overview shell", async () => {
+            try {
+              await workshopLandingPage.assertLoaded();
+            } catch (error) {
+              issues.push(
+                contentQualityIssue(
+                  "OVERVIEW_STRUCTURE",
+                  "Overview structure",
+                  "major",
+                  "The workshop route opened, but the overview page was missing expected controls or sections.",
+                  { error: errorMessage(error) },
+                ),
+              );
+            }
+          });
+        }
 
         issues.push(
           ...(await test.step("Check workshop overview content", async () =>

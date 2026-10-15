@@ -501,7 +501,7 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v19"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v20"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
@@ -741,6 +741,12 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.ok(html.indexOf('value="priority:P1"') < html.indexOf('value="MARKDOWN_FORMATTING"'));
     assert.match(html, /value="WRITING_GRAMMAR"/);
     assert.match(html, /value="POSSIBLE_TYPO"/);
+    assert.match(html, /<span>Manual grammar or typo review<\/span>/);
+    assert.match(html, /<span class="pill warn">Manual language review<\/span>/);
+    assert.match(html, /<strong>0<\/strong><span>Items with issues<\/span>/);
+    assert.match(html, /<strong>1<\/strong><span>Manual grammar or typo review<\/span>/);
+    assert.match(html, /Should manually check grammar or typos/);
+    assert.doesNotMatch(html, /data-review-action="retest" data-review-id=/);
   } finally {
     fs.rmSync(reportsRoot, { recursive: true, force: true });
   }
@@ -925,6 +931,13 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
             lab_number: 3,
             error: "Workshop source returned HTTP 404.",
           }],
+        }, {
+          code: "BROKEN_VISIBLE_IMAGE",
+          label: "Broken visible image",
+          severity: "major",
+          message: "One visible image does not load.",
+          section: "Generated Workshop Overview",
+          details: [{ src: "https://example.com/broken.png", alt: "Broken preview" }],
         }],
         tests: [{
           section: "Catalog PAR Links",
@@ -971,6 +984,11 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
     assert.match(html, /moviestream_sandbox/);
     assert.match(html, /HTTP 404/);
     assert.doesNotMatch(html, /private-token/);
+    assert.match(html, /value="priority:P1">P1 Fix first \(1\)<\/option>/);
+    assert.match(html, /value="priority:P2">P2 High \(1\)<\/option>/);
+    assert.match(html, /Each catalog item counts once per priority, regardless of how many findings it contains/);
+    assert.match(html, /Items with P1/);
+    assert.match(html, /Items with P2/);
   } finally {
     fs.rmSync(reportsRoot, { recursive: true, force: true });
   }

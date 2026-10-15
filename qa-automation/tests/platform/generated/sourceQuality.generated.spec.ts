@@ -13,7 +13,7 @@ import {
   loadCatalogIndex,
 } from "../../support/catalogIndex.js";
 import { signInIfRequired } from "../../support/authenticatedNavigation.js";
-import { openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
+import { isDirectPublishedInstructions, openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
 import { test } from "../../support/test.js";
 import { collectWorkshopSourceQualityIssues } from "../../support/workshopSourceQuality.js";
 
@@ -59,15 +59,17 @@ test.describe("LiveLabs generated workshop source quality", { tag: GENERATED_SOU
 
         const openLaunchOptions = async (contextName: string) => {
           await openIndexedCatalogItem(page, authRuntime, environmentConfig.base_url, item, contextName);
+          if (isDirectPublishedInstructions(page)) return false;
           await workshopLandingPage.assertLoaded();
           await workshopLandingPage.openLaunchOptions();
           await workshopLaunchOptionsDialog.assertHasLaunchAction();
+          return true;
         };
 
-        const scanInstructions = async (instructionsPage: Page, surface: string) => {
+        const scanInstructions = async (instructionsPage: Page, surface: string, allowShortForm = false) => {
           await signInIfRequired(instructionsPage, authRuntime, `${surface}: ${item.title}`);
           const pageModel = new WorkshopInstructionsPage(instructionsPage);
-          await pageModel.assertLoaded();
+          await pageModel.assertLoaded({ allowShortForm });
           const result = await collectWorkshopSourceQualityIssues(
             instructionsPage,
             `${surface}: ${item.title}`,
@@ -77,20 +79,28 @@ test.describe("LiveLabs generated workshop source quality", { tag: GENERATED_SOU
           if (instructionsPage !== page) await instructionsPage.close();
         };
 
-        await openLaunchOptions("Workshop source quality preview");
-        if (await workshopLaunchOptionsDialog.hasPreviewInstructions()) {
-          await scanInstructions(
-            await workshopLaunchOptionsDialog.openPreviewInstructions(),
-            "Preview instructions source",
-          );
-        }
+        const hasLaunchOptions = await openLaunchOptions("Workshop source quality preview");
+        if (!hasLaunchOptions) {
+          testInfo.annotations.push({
+            type: "source-quality",
+            description: "This catalog item publishes its instructions directly; source checks use that route.",
+          });
+          await scanInstructions(page, "Published direct instructions source", true);
+        } else {
+          if (await workshopLaunchOptionsDialog.hasPreviewInstructions()) {
+            await scanInstructions(
+              await workshopLaunchOptionsDialog.openPreviewInstructions(),
+              "Preview instructions source",
+            );
+          }
 
-        await openLaunchOptions("Workshop source quality tenancy");
-        if (await workshopLaunchOptionsDialog.hasRunOnYourEnvironmentInstructions()) {
-          await scanInstructions(
-            await workshopLaunchOptionsDialog.openRunOnYourEnvironmentInstructions(),
-            "Run on your tenancy instructions source",
-          );
+          await openLaunchOptions("Workshop source quality tenancy");
+          if (await workshopLaunchOptionsDialog.hasRunOnYourEnvironmentInstructions()) {
+            await scanInstructions(
+              await workshopLaunchOptionsDialog.openRunOnYourEnvironmentInstructions(),
+              "Run on your tenancy instructions source",
+            );
+          }
         }
 
         const issues = mergeIssues(collectedIssues);

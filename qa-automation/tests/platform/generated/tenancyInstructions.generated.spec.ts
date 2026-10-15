@@ -7,7 +7,7 @@ import {
   loadCatalogIndex,
 } from "../../support/catalogIndex.js";
 import { signInIfRequired } from "../../support/authenticatedNavigation.js";
-import { openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
+import { isDirectPublishedInstructions, openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
 import { test } from "../../support/test.js";
 
 const GENERATED_TENANCY_TAGS = ["@generated", "@platform", "@instructions", "@tenancy", "@workshop", "@content", "@ui"];
@@ -53,6 +53,21 @@ test.describe("LiveLabs generated tenancy instructions", { tag: GENERATED_TENANC
           item,
           `Generated tenancy instructions: ${item.title}`,
         );
+        if (isDirectPublishedInstructions(page)) {
+          testInfo.annotations.push({
+            type: "tenancy-instructions",
+            description: "This catalog item publishes its instructions directly; no launch-options dialog is expected.",
+          });
+          const instructionsPage = new WorkshopInstructionsPage(page);
+          await instructionsPage.assertLoaded({ allowShortForm: true });
+          await instructionsPage.assertContentQuality({
+            contextName: `Generated direct instructions: ${item.title}`,
+            expectedTerms: expectedTermsForCatalogItem(item),
+            expectedTermsMode: "any",
+            allowShortForm: true,
+          }, testInfo);
+          return;
+        }
         await workshopLandingPage.assertLoaded();
         await workshopLandingPage.openLaunchOptions();
         await workshopLaunchOptionsDialog.assertHasLaunchAction();

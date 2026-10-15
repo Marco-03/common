@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildCatalogItem,
+  canonicalCatalogFacetGroup,
   catalogIdentityKey,
   catalogItemTypeFromCard,
   explicitCatalogId,
@@ -30,6 +31,17 @@ test("keeps Sprints and events out of the workshop type", () => {
     catalogItemTypeFromCard({ href: "/view-workshop?wid=3386", catalogTypeHint: "Sprints", title: "Como adicionar notas para apoiar a apresentação e a narrativa no Oracle Analytics Cloud (OAC)?" }),
     "sprint",
   );
+  assert.equal(
+    catalogItemTypeFromCard({ href: "/view-workshop?wid=3543", labels: ["LiveLabs Sprint"] }),
+    "sprint",
+  );
+});
+
+test("normalizes descriptive catalog facet labels", () => {
+  assert.equal(canonicalCatalogFacetGroup("Content Type"), "Type");
+  assert.equal(canonicalCatalogFacetGroup("Type filter"), "Type");
+  assert.equal(canonicalCatalogFacetGroup("Product filter"), "Product");
+  assert.equal(canonicalCatalogFacetGroup("Level filter"), "Level");
 });
 
 test("uses the LiveStack p400_id as its catalog identifier", () => {

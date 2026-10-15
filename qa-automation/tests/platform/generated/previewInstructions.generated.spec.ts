@@ -7,7 +7,7 @@ import {
   loadCatalogIndex,
 } from "../../support/catalogIndex.js";
 import { signInIfRequired } from "../../support/authenticatedNavigation.js";
-import { openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
+import { isDirectPublishedInstructions, openIndexedCatalogItem } from "../../support/indexedCatalogNavigation.js";
 import { test } from "../../support/test.js";
 
 const GENERATED_PREVIEW_TAGS = ["@generated", "@platform", "@instructions", "@workshop", "@content", "@ui"];
@@ -53,6 +53,21 @@ test.describe("LiveLabs generated preview instructions", { tag: GENERATED_PREVIE
           item,
           `Generated preview instructions: ${item.title}`,
         );
+        if (isDirectPublishedInstructions(page)) {
+          testInfo.annotations.push({
+            type: "preview-instructions",
+            description: "This catalog item publishes its instructions directly; no launch-options dialog is expected.",
+          });
+          const instructionsPage = new WorkshopInstructionsPage(page);
+          await instructionsPage.assertLoaded({ allowShortForm: true });
+          await instructionsPage.assertContentQuality({
+            contextName: `Generated direct instructions: ${item.title}`,
+            expectedTerms: expectedTermsForCatalogItem(item),
+            expectedTermsMode: "any",
+            allowShortForm: true,
+          }, testInfo);
+          return;
+        }
         await workshopLandingPage.assertLoaded();
         await workshopLandingPage.openLaunchOptions();
         await workshopLaunchOptionsDialog.assertHasLaunchAction();

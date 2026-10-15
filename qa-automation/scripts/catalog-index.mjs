@@ -172,11 +172,24 @@ export function catalogItemTypeFromCard(rawItem) {
   const href = String(rawItem?.href || "").toLowerCase();
   const cardClass = String(rawItem?.cardClass || "").toLowerCase();
   const typeHint = String(rawItem?.catalogTypeHint || "").toLowerCase();
+  const labels = Array.isArray(rawItem?.labels)
+    ? rawItem.labels.map((label) => String(label).trim().toLowerCase())
+    : [];
 
   if (href.includes("livestack-landing-page") || cardClass.includes("livestack-card")) return "livestack";
-  if (cardClass.includes("event-card") || /\bevents?\b/.test(typeHint)) return "event";
-  if (cardClass.includes("sprint-card") || /\bsprints?\b/.test(typeHint)) return "sprint";
+  if (cardClass.includes("event-card") || /\bevents?\b/.test(typeHint) || labels.some((label) => /^(?:livelabs\s+)?events?$/.test(label))) return "event";
+  if (cardClass.includes("sprint-card") || /\bsprints?\b/.test(typeHint) || labels.some((label) => /^(?:livelabs\s+)?sprints?$/.test(label))) return "sprint";
   return "workshop";
+}
+
+export function canonicalCatalogFacetGroup(group) {
+  const normalized = String(group || "").trim().toLowerCase();
+  if (normalized === "type" || /\b(?:content|catalog)\s+type\b/.test(normalized) || /\btype\s+filter\b/.test(normalized)) {
+    return CATALOG_PRIMARY_COVERAGE_GROUP;
+  }
+  if (normalized === "product" || /\bproduct\s+filter\b/.test(normalized)) return CATALOG_FALLBACK_COVERAGE_GROUP;
+  if (normalized === "level" || /\blevel\s+filter\b/.test(normalized)) return CATALOG_LEVEL_GROUP;
+  return String(group || "").trim();
 }
 
 function slugify(value) {
@@ -583,7 +596,7 @@ async function crawlCatalog(options) {
 }
 
 async function discoverFullCatalogCoverage(page) {
-  const facets = await page.evaluate(() =>
+  const rawFacets = await page.evaluate(() =>
     Array.from(document.querySelectorAll("input[type='checkbox'][id]"))
       .map((input) => {
         const label = document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
@@ -598,6 +611,7 @@ async function discoverFullCatalogCoverage(page) {
       })
       .filter((facet) => facet.group && facet.label),
   );
+  const facets = rawFacets.map((facet) => ({ ...facet, group: canonicalCatalogFacetGroup(facet.group) }));
   const levels = facets.filter((facet) => facet.group === CATALOG_LEVEL_GROUP);
   const primary = facets.filter((facet) => facet.group === CATALOG_PRIMARY_COVERAGE_GROUP);
   const fallback = facets.filter((facet) => facet.group === CATALOG_FALLBACK_COVERAGE_GROUP);

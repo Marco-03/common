@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v19";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v20";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -455,17 +455,26 @@ function catalogEntryStatus(item) {
   return "passed";
 }
 
+const MANUAL_LANGUAGE_REVIEW_CODES = new Set(["MARKDOWN_FORMATTING", "WRITING_GRAMMAR", "POSSIBLE_TYPO"]);
+
 function operatorState(item) {
   const codes = (item.issues || []).map((issue) => canonicalIssueCode(issue.code));
   const incomplete = new Set(["LINK_CHECK_INCOMPLETE", "SOURCE_SCAN_INCOMPLETE", "PAR_SCAN_INCOMPLETE", "PAR_LINK_UNVERIFIED"]);
   const blocked = new Set(["AUTHENTICATION_REQUIRED", "QA_SETUP_FAILED", "QA_CHECK_FAILED", "PAGE_TIMED_OUT"]);
-  if (codes.some((code) => !incomplete.has(code) && !blocked.has(code))) return "failed";
+  if (codes.some((code) => !incomplete.has(code) && !blocked.has(code) && !MANUAL_LANGUAGE_REVIEW_CODES.has(code))) return "failed";
   if (codes.some((code) => incomplete.has(code))) return "partial";
+  if (codes.some((code) => MANUAL_LANGUAGE_REVIEW_CODES.has(code))) return "review";
   if (codes.length || item.status === "skipped") return "unchecked";
   return item.status === "failed" ? "unchecked" : "passed";
 }
 
-const OPERATOR_STATES = { failed: "Issues found", partial: "Partially checked", unchecked: "Could not check", passed: "Passed" };
+const OPERATOR_STATES = {
+  failed: "Issues found",
+  review: "Manual language review",
+  partial: "Partially checked",
+  unchecked: "Could not check",
+  passed: "Passed",
+};
 
 function catalogStatusRank(status) {
   if (status === "failed") return 0;
@@ -1057,11 +1066,15 @@ function htmlSummary(summary, context = {}) {
   );
   const failures = (summary.failures || []).filter((failure) => failure.classification?.code !== "CONTENT_RELEVANCE");
   const reviewItems = buildReviewEntries(catalogItems, summary.runId);
-  const itemCounts = {
-    passed: catalogItems.filter((item) => item.status === "passed").length,
-    failed: catalogItems.filter((item) => item.status === "failed").length,
-    skipped: catalogItems.filter((item) => item.status === "skipped").length,
-  };
+  const operatorCounts = Object.fromEntries(
+    Object.keys(OPERATOR_STATES).map((state) => [state, catalogItems.filter((item) => operatorState(item) === state).length]),
+  );
+  const priorityItemCounts = Object.fromEntries(
+    PRIORITY_DEFINITIONS.map((priority) => [
+      priority.code,
+      catalogItems.filter((item) => itemPriorities(item).includes(priority.code)).length,
+    ]),
+  );
   const testedItems =
     catalogItems.length > 0
       ? testedItemsHtml(catalogItems, failureCategories, summary.runId, failures, context)
@@ -1154,7 +1167,7 @@ function htmlSummary(summary, context = {}) {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
       gap: 12px;
-      margin-bottom: 20px;
+      margin-bottom: 12px;
     }
     .metric {
       background: var(--panel);
@@ -1167,6 +1180,23 @@ function htmlSummary(summary, context = {}) {
     .metric.pass { border-left: 4px solid var(--pass); }
     .metric.fail { border-left: 4px solid var(--fail); }
     .metric.warn { border-left: 4px solid var(--warn); }
+    .priority-overview {
+      align-items: center;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(120px, .45fr));
+      margin-bottom: 20px;
+      padding: 12px 14px;
+    }
+    .priority-overview > div:first-child strong,
+    .priority-overview > div:first-child span { display: block; }
+    .priority-overview > div:first-child span { color: var(--muted); font-size: 13px; margin-top: 3px; }
+    .priority-count { border-left: 3px solid var(--line-strong); padding: 4px 10px; }
+    .priority-count strong { display: block; font-size: 22px; }
+    .priority-count span { color: var(--muted); font-size: 13px; }
     .section {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -2365,6 +2395,7 @@ function htmlSummary(summary, context = {}) {
       text-align: center;
     }
     @media (max-width: 720px) {
+      .priority-overview { grid-template-columns: 1fr; }
       .result-table { overflow: visible; }
       .result-table-head { display: none; }
       .result-summary { min-width: 0; grid-template-columns: minmax(0, 1fr); gap: 10px; }
@@ -2437,15 +2468,20 @@ function htmlSummary(summary, context = {}) {
     ${summary.previewMode ? `<div class="preview-notice"><strong>Design preview only</strong><span>These rows demonstrate the report layout. They are not findings from a LiveLabs scan.</span></div>` : ""}
     <div class="totals">
       ${metric("Catalog items", catalogItems.length || summary.counts.total)}
-      ${metric("Passed", catalogItems.length > 0 ? itemCounts.passed : summary.counts.passed, "pass")}
+      ${metric("Passed", catalogItems.length > 0 ? operatorCounts.passed : summary.counts.passed, "pass")}
       ${metric(
         "Items with issues",
-        catalogItems.length > 0 ? catalogItems.filter((item) => operatorState(item) === "failed").length : summary.counts.unexpected,
-        summary.counts.unexpected > 0 ? "warn" : "pass",
+        catalogItems.length > 0 ? operatorCounts.failed : summary.counts.unexpected,
+        operatorCounts.failed > 0 ? "warn" : "pass",
       )}
-      ${metric("Partially checked", catalogItems.filter((item) => operatorState(item) === "partial").length, "warn")}
-      ${metric("Could not check", catalogItems.filter((item) => operatorState(item) === "unchecked").length, "warn")}
+      ${metric("Manual grammar or typo review", operatorCounts.review, "warn")}
+      ${metric("Partially checked", operatorCounts.partial, "warn")}
+      ${metric("Could not check", operatorCounts.unchecked, "warn")}
     </div>
+    <section class="priority-overview" aria-label="Catalog items by issue priority">
+      <div><strong>Catalog items by priority</strong><span>Each catalog item counts once per priority, regardless of how many findings it contains.</span></div>
+      ${PRIORITY_DEFINITIONS.map((priority) => `<div class="priority-count"><strong>${escapeHtml(String(priorityItemCounts[priority.code] || 0))}</strong><span>Items with ${escapeHtml(priority.code)}</span></div>`).join("")}
+    </section>
     <p class="review-message" data-review-message></p>
     ${testedItems}
   </main>
@@ -2467,7 +2503,8 @@ function htmlSummary(summary, context = {}) {
       if (activeFilter === "all") return true;
       const issueCodes = (row.getAttribute("data-issues") || "").split(/\\s+/).filter(Boolean);
       if (activeFilter.startsWith("priority:")) {
-        return row.getAttribute("data-priority") === activeFilter.slice("priority:".length);
+        const priorities = (row.getAttribute("data-priority") || "").split(/\\s+/).filter(Boolean);
+        return priorities.includes(activeFilter.slice("priority:".length));
       }
       return (
         row.getAttribute("data-status") === activeFilter ||
@@ -3787,7 +3824,7 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
   const priorityCounts = new Map(
     PRIORITY_DEFINITIONS.map((priority) => [
       priority.code,
-      items.filter((item) => itemPriority(item) === priority.code).length,
+      items.filter((item) => itemPriorities(item).includes(priority.code)).length,
     ]),
   );
 
@@ -3894,25 +3931,27 @@ function testedItemRowHtml(item, runId, failures, context) {
   const tests = item.tests || [];
   const sections = item.sections || [];
   const issueCodes = Array.from(new Set(issues.map((issue) => issue.code)));
-  const priority = itemPriority(item);
+  const priorities = itemPriorities(item);
+  const priority = priorities[0] || "";
+  const state = operatorState(item);
   const blockerCount = issues.filter((issue) => issue.severity === "blocker").length;
   const issueCount = Number(item.issueCount ?? issues.length);
   const findingCount = issueFindingCount(issues);
   const checkCount = Number(item.counts?.total ?? tests.length);
   const issueLabel =
-    item.status === "failed"
+    ["failed", "review"].includes(state)
       ? blockerCount > 0
         ? `${blockerCount} hard blocker${blockerCount === 1 ? "" : "s"}`
         : issueCount === 1
           ? `${issueDisplayLabel(issues[0])}`
           : `${issueCount} categories · ${findingCount} finding${findingCount === 1 ? "" : "s"}`
-      : item.status === "passed"
+      : state === "passed"
         ? "No issues found"
         : issues.length === 1
           ? issueDisplayLabel(issues[0])
           : "Not tested";
-  const statusTone = item.status === "failed" ? "fail" : item.status === "skipped" ? "warn" : "pass";
-  const statusLabel = OPERATOR_STATES[operatorState(item)];
+  const statusTone = state === "failed" ? "fail" : state === "passed" ? "pass" : "warn";
+  const statusLabel = OPERATOR_STATES[state];
   const searchText = [
     catalogItemDisplayTitle(item.catalogItem),
     itemId,
@@ -3926,12 +3965,12 @@ function testedItemRowHtml(item, runId, failures, context) {
     .filter(Boolean)
     .join(" ");
 
-  return `<details class="result-row ${escapeAttribute(item.status)}"
+  return `<details class="result-row ${escapeAttribute(state)}"
     id="${escapeAttribute(itemDetailId(item))}"
     data-item-row
-    data-status="${escapeAttribute(operatorState(item))}"
+    data-status="${escapeAttribute(state)}"
     data-type="${escapeAttribute(itemType)}"
-    data-priority="${escapeAttribute(priority)}"
+    data-priority="${escapeAttribute(priorities.join(" "))}"
     data-issues="${escapeAttribute(issueCodes.join(" "))}"
     data-search="${escapeAttribute(searchText)}">
     <summary class="result-summary">
@@ -3964,8 +4003,9 @@ function itemDetailHtml(item, failures, context) {
   const reviewId = reviewEntryId(item, context.summaryRunId || "");
   const hasParIssues = hasParAuditIssues(issues);
   const authenticationOnly = issues.length > 0 && issues.every((issue) => issue.code === "AUTHENTICATION_REQUIRED");
+  const state = operatorState(item);
   const issueHeading =
-    operatorState(item) === "partial" ? "Coverage incomplete" : operatorState(item) === "unchecked"
+    state === "review" ? "Should manually check grammar or typos" : state === "partial" ? "Coverage incomplete" : state === "unchecked"
       ? "Could not check"
       : issues.length === 0
       ? "No issues found"
@@ -3980,14 +4020,16 @@ function itemDetailHtml(item, failures, context) {
             ? "Every completed check passed for this item."
             : authenticationOnly
               ? "The QA browser needs a fresh Oracle sign-in before this item can be checked. No workshop change is requested."
-            : ["partial", "unchecked"].includes(operatorState(item))
+            : state === "review"
+              ? "Review these language suggestions and change only confirmed mistakes; they are not counted as product issues."
+            : ["partial", "unchecked"].includes(state)
               ? "Some checks did not complete. Review the listed page or access problem before changing workshop content."
             : "Review each problem below, make the change, then add the item to the retest list.",
         )}</p>
       </div>
       <div class="result-actions">
         ${url ? `<a class="link-button" href="${escapeAttribute(stableWorkshopSourceUrl(url, url))}" target="_blank" rel="noreferrer">${escapeHtml(catalogItemOpenLabel(item.catalogItem?.type))}</a>` : ""}
-        ${issues.length > 0 && !hasParIssues && !authenticationOnly ? `<button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}">Add to Retest List</button>` : ""}
+        ${issues.length > 0 && state === "failed" && !hasParIssues && !authenticationOnly ? `<button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}">Add to Retest List</button>` : ""}
       </div>
     </div>
     ${issues.length > 0 && !authenticationOnly ? workshopAuthorContactsHtml(item) : ""}
@@ -5289,6 +5331,12 @@ function issuePriority(issue) {
 function itemPriority(item) {
   const priorities = (item?.issues || []).map(issuePriority);
   return priorities.sort((left, right) => Number(left.slice(1)) - Number(right.slice(1)))[0] || "";
+}
+
+function itemPriorities(item) {
+  return Array.from(new Set((item?.issues || []).map(issuePriority))).sort(
+    (left, right) => Number(left.slice(1)) - Number(right.slice(1)),
+  );
 }
 
 function itemPriorityRank(item) {

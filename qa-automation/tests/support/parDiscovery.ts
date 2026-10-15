@@ -30,7 +30,6 @@ export interface ParDiscoveryResult {
 
 interface FrameSnapshot {
   frameUrl: string;
-  html: string;
   text: string;
   attributes: Array<{ value: string; location: string }>;
   labLinks: string[];
@@ -60,7 +59,7 @@ export async function collectParCandidatesFromPage(page: Page, source: ParSource
       );
     }
 
-    for (const content of [snapshot.frameUrl, snapshot.html, snapshot.text]) {
+    for (const content of [snapshot.frameUrl, snapshot.text]) {
       candidates.push(
         ...extractParUrlsFromText(content).map((url) => ({
           url,
@@ -79,6 +78,20 @@ export async function collectParCandidatesFromPage(page: Page, source: ParSource
   return mergeParCandidates(candidates);
 }
 
+export function filterSourceCandidatesByRenderedLab(
+  sourceCandidates: ParCandidate[],
+  renderedUrlsByLab: ReadonlyMap<string, ReadonlySet<string>>,
+): ParCandidate[] {
+  return sourceCandidates.flatMap((candidate) => {
+    const candidateKey = normalizedPageKey(candidate.url);
+    const activeSources = candidate.sources.filter((candidateSource) => {
+      const renderedUrls = renderedUrlsByLab.get(normalizedPageKey(candidateSource.pageUrl));
+      return Boolean(renderedUrls?.has(candidateKey));
+    });
+    return activeSources.length ? [{ ...candidate, sources: activeSources }] : [];
+  });
+}
+
 export async function collectWorkshopInstructionParCandidates(
   page: Page,
   authRuntime: AuthRuntimeConfig,
@@ -94,14 +107,51 @@ export async function collectWorkshopInstructionParCandidates(
   if (sourceDiscovery.handled) {
     const renderedUrls = new Set(candidates.map((candidate) => normalizedPageKey(candidate.url)));
     const activePageKeys = new Set(page.frames().map((frame) => normalizedPageKey(frame.url())));
-    candidates.push(...sourceDiscovery.candidates.filter((candidate) => {
-      const sourceIsCurrentLab = candidate.sources.some((candidateSource) =>
-        activePageKeys.has(normalizedPageKey(candidateSource.pageUrl)),
-      );
-      // A raw Markdown fetch can lag the rendered LiveLabs lab. Do not report a
-      // source-only URL from the page the reader is actually viewing as broken.
-      return !sourceIsCurrentLab || renderedUrls.has(normalizedPageKey(candidate.url));
-    }));
+    const renderedUrlsByLab = new Map<string, ReadonlySet<string>>();
+    const sourceLabUrls = Array.from(new Set(
+      sourceDiscovery.candidates.flatMap((candidate) => candidate.sources.map((candidateSource) => candidateSource.pageUrl)),
+    ));
+
+    for (const sourceLabUrl of sourceLabUrls) {
+      const sourceLabKey = normalizedPageKey(sourceLabUrl);
+      if (activePageKeys.has(sourceLabKey)) {
+        renderedUrlsByLab.set(sourceLabKey, renderedUrls);
+        continue;
+      }
+
+      const labPage = await page.context().newPage();
+      try {
+        const response = await labPage.goto(sourceLabUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: PAGE_TIMEOUT_MS,
+        });
+        if (response && response.status() >= 400) throw new Error("HTTP " + response.status());
+        await signInIfRequired(labPage, authRuntime, source.label + ": rendered lab");
+        await labPage.locator("body").waitFor({ state: "visible", timeout: PAGE_TIMEOUT_MS });
+        const renderedLabCandidates = await collectParCandidatesFromPage(labPage, {
+          pageType: source.pageType + "-lab",
+          pageUrl: sanitizeSourceUrl(labPage.url()),
+          label: source.label + ": Rendered lab",
+        });
+        renderedUrlsByLab.set(
+          sourceLabKey,
+          new Set(renderedLabCandidates.map((candidate) => normalizedPageKey(candidate.url))),
+        );
+        candidates.push(...renderedLabCandidates);
+        pagesScanned += 1;
+      } catch (error) {
+        scanErrors.push({
+          page_type: source.pageType + "-rendered-lab",
+          page_url: sanitizeSourceUrl(sourceLabUrl),
+          label: source.label + ": Rendered lab",
+          error: safeScanError(error),
+        });
+      } finally {
+        await labPage.close();
+      }
+    }
+
+    candidates.push(...filterSourceCandidatesByRenderedLab(sourceDiscovery.candidates, renderedUrlsByLab));
     pagesScanned += sourceDiscovery.pagesScanned;
     return {
       candidates: mergeParCandidates(candidates),
@@ -300,7 +350,6 @@ async function snapshotFrame(frame: Frame): Promise<FrameSnapshot> {
 
     return {
       frameUrl: location.href,
-      html: document.documentElement?.outerHTML || "",
       text: document.body?.innerText || "",
       attributes,
       labLinks,

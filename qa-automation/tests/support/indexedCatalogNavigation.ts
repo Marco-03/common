@@ -33,7 +33,11 @@ export async function openIndexedCatalogItem(
   const expectedPaths =
     options.expectedPaths?.length
       ? options.expectedPaths
-      : [item.type === "livestack" ? "/livestack-landing-page" : "/view-workshop"];
+      : item.type === "livestack"
+        ? ["/livestack-landing-page"]
+        : item.type === "workshop"
+          ? ["/view-workshop", "/run-workshop"]
+          : ["/view-workshop"];
   let lastError: unknown;
 
   for (const targetUrl of targetUrls) {
@@ -93,6 +97,14 @@ export async function openIndexedCatalogItem(
   throw new Error(
     `Could not open indexed catalog item "${item.title}" after trying ${targetUrls.join(", ")}. Last error: ${detail}`,
   );
+}
+
+export function isDirectPublishedInstructions(page: Page): boolean {
+  try {
+    return new URL(page.url()).pathname.includes("/run-workshop");
+  } catch {
+    return page.url().includes("/run-workshop");
+  }
 }
 
 function isOracleSignInDestination(rawUrl: string): boolean {

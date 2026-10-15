@@ -91,6 +91,18 @@ const catalogItems = [
           sourceLine: 612,
         }],
       }],
+    }, {
+      code: "SOURCE_SCAN_INCOMPLETE",
+      label: "Some instruction pages could not be checked",
+      severity: "major",
+      message: "One rendered lab could not be opened during the same item scan.",
+      section: "Catalog PAR Links",
+      details: [{
+        label: "Lab 5: Cleanup",
+        location: "Lab 5: Cleanup",
+        error: "Rendered lab returned a temporary response.",
+        suggestion: "Rerun this lab check before changing workshop content.",
+      }],
     }],
   }),
   item({

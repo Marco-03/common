@@ -242,7 +242,12 @@ export async function inspectPossibleTypos(document: WorkshopSourceDocument): Pr
     const lineIndex = lineIndexAtOffset(text, issue.offset);
     const columnIndex = columnIndexAtOffset(text, issue.offset);
     const key = `${word.toLowerCase()}|${lineIndex}`;
-    if (!isHighConfidenceTypo(word, suggestion) || isTechnicalTokenAtSourceOffset(lines[lineIndex] || "", word, columnIndex) || seen.has(key)) continue;
+    if (
+      !isHighConfidenceTypo(word, suggestion) ||
+      isTechnicalTokenAtSourceOffset(lines[lineIndex] || "", word, columnIndex) ||
+      isQuotedMachineIdentifierAtSourceOffset(lines[lineIndex] || "", word, columnIndex) ||
+      seen.has(key)
+    ) continue;
     seen.add(key);
     details.push(
       sourceDetail(
@@ -275,6 +280,15 @@ function isTechnicalTokenAtSourceOffset(sourceLine: string, word: string, column
   const before = left.at(-1) || "";
   const after = right[0] || "";
   return /[:._\\\\-]/.test(before) || /[:._\\\\-]/.test(after);
+}
+
+function isQuotedMachineIdentifierAtSourceOffset(sourceLine: string, word: string, columnIndex: number): boolean {
+  if (sourceLine.slice(columnIndex, columnIndex + word.length).toLowerCase() !== word.toLowerCase()) return false;
+  const quote = sourceLine[columnIndex - 1];
+  if (!quote || !["\"", "'"].includes(quote) || sourceLine[columnIndex + word.length] !== quote) return false;
+
+  const context = sourceLine.toLowerCase();
+  return /\b(?:attribute|column|field|identifier|json|key|metadata|parameter|property|response|tag|value)\b/.test(context);
 }
 
 function sourceDetail(
@@ -348,6 +362,8 @@ function maskInactiveWorkshopVariants(text: string, renderedUrl: string): string
 
 function maskNonProse(value: string): string {
   return maskInlineCode(value)
+    .replace(/!\[[^\]\r\n]*\](?:\([^\r\n)]*\)|\[[^\]\r\n]*\])/g, maskValue)
+    .replace(/(["'])(?=[^"'\r\n]*[\\/?=%])[^"'\r\n]+\1/g, maskValue)
     .replace(/https?:\/\/[^\s)>]+/gi, maskValue)
     .replace(/\b[A-Za-z][A-Za-z0-9+.-]*@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, maskValue)
     .replace(/(?<=\]\()[^)\n]+(?=\))/g, maskValue)

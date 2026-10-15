@@ -182,6 +182,25 @@ test("does not report valid emphasis when punctuation is inside the bold text", 
   expect(inspectMarkdownFormatting(document)).toEqual([]);
 });
 
+test("does not spellcheck Markdown image metadata", async () => {
+  const document = source([
+    '![login apexd](./images/login-apexd.png "login apexd")',
+    '![home menu heatwave mysq](./images/home-menu-database-mysql.png "home menu heatwave mysql")',
+  ].join("\n"));
+
+  expect(await inspectPossibleTypos(document)).toEqual([]);
+});
+
+test("does not spellcheck quoted machine field names", async () => {
+  const document = source('The response has two fields under the "_metadata" tag: "etag" and "asof".');
+  expect(await inspectPossibleTypos(document)).toEqual([]);
+});
+
+test("does not treat query parameters inside quoted paths as punctuation errors", () => {
+  const document = source('Notice the URL pattern "/_/graphql/status?q=%7B%7D" before continuing.');
+  expect(inspectWritingGrammar(document)).toEqual([]);
+});
+
 test("does not spellcheck fenced-code language and renderer controls", async () => {
   const document = source([
     "```nohighlight",
