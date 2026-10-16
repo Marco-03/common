@@ -2,6 +2,7 @@
 // Handles mode switching, sticky navigation, search ranking, toolkit detail views, and image expansion.
 (function () {
   var content = window.authorGuideContent || {};
+  var tagGroups = content.tagGroups || [];
   var stepMeta = content.stepMeta || [];
   var githubCheatsheetItemIds = {
     "github-setup": true,
@@ -129,23 +130,6 @@
     latest: true,
     topic: true
   };
-  var tagFacetOrder = [
-    "wms",
-    "github",
-    "markdown",
-    "validation",
-    "publishing",
-    "media",
-    "interactive",
-    "marketplace",
-    "livestack",
-    "assets",
-    "secure-desktop",
-    "support",
-    "tools",
-    "sprints",
-    "ai"
-  ];
   var recommendedCheatsheetOrder = [
     "wms-request",
     "github-setup",
@@ -425,6 +409,7 @@
   var searchEntryMap = {};
   var prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var suppressObserver = false;
+  var suppressBubbleHashSync = false;
   var isRestoringHistory = false;
 
   if ("scrollRestoration" in history) {
@@ -443,6 +428,7 @@
   var searchMode = document.getElementById("searchMode");
   var rabbitFlow = document.getElementById("rabbitFlow");
   var stepSections = Array.from(document.querySelectorAll(".rabbit-step"));
+  var progressButtons = Array.from(document.querySelectorAll(".quickstart-step-tabs .progress-button"));
   var progressShell = document.getElementById("progressShell");
   var authoringRouteTabs = Array.from(document.querySelectorAll("[data-authoring-route]"));
   var authoringRoutePanels = Array.from(document.querySelectorAll("[data-authoring-panel]"));
@@ -527,6 +513,10 @@
       document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
         backdrop.remove();
       });
+      if (!suppressBubbleHashSync && state.mode === "explorer" && isCheatsheetModalHash(window.location.hash)) {
+        setHash(cheatsheetFilterHash(state.activeTags[0]), { replace: true });
+      }
+      suppressBubbleHashSync = false;
     });
 
     bubbleModalElement.addEventListener("click", function (event) {
@@ -546,13 +536,25 @@
       return;
     }
 
+    if (!document.querySelector(".modal-backdrop")) {
+      var fallbackBackdrop = document.createElement("div");
+      fallbackBackdrop.className = "modal-backdrop fade show";
+      fallbackBackdrop.setAttribute("data-bubble-modal-backdrop", "true");
+      document.body.appendChild(fallbackBackdrop);
+    }
     bubbleModalElement.classList.add("show");
     bubbleModalElement.setAttribute("aria-hidden", "false");
     bubbleModalElement.style.display = "block";
     document.body.classList.add("modal-open");
   }
 
-  function hideBubbleModal() {
+  function hideBubbleModal(options) {
+    var config = Object.assign({ syncHash: true }, options || {});
+
+    if (!config.syncHash) {
+      suppressBubbleHashSync = true;
+    }
+
     if (bubbleModal) {
       bubbleModal.hide();
       return;
@@ -567,6 +569,13 @@
     bubbleModalElement.setAttribute("aria-hidden", "true");
     bubbleModalElement.style.display = "none";
     document.body.classList.remove("modal-open");
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.remove();
+    });
+    if (config.syncHash && state.mode === "explorer" && isCheatsheetModalHash(window.location.hash)) {
+      setHash(cheatsheetFilterHash(state.activeTags[0]), { replace: true });
+    }
+    suppressBubbleHashSync = false;
   }
 
   function escapeHtml(value) {
@@ -704,7 +713,7 @@
     var path = window.location.pathname || "/";
     var cleanPath = path.replace(/\/+$/, "");
     var segments = cleanPath.split("/").filter(Boolean);
-    var routeNames = ["home", "quickstart", "cheatsheet", "nodoc"];
+    var routeNames = ["home", "quickstart", "cheatsheet", "markdown", "nodoc"];
     var lastSegment = (segments[segments.length - 1] || "").toLowerCase();
     var previousSegment = (segments[segments.length - 2] || "").toLowerCase();
 
@@ -780,6 +789,96 @@
       || cleanRoute.indexOf("#guide-") === 0;
   }
 
+  function slugifyHash(value) {
+    return String(value || "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function cheatsheetItemHash(item) {
+    return "#" + slugifyHash(item && (item.title || item.id)) + "/";
+  }
+
+  function findCheatsheetItemByHash(hash) {
+    var raw = String(hash || "").replace(/^#/, "");
+    var decoded = raw;
+    var slug;
+
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch (error) {
+      decoded = raw;
+    }
+
+    if (decoded.indexOf("cheatsheet:") === 0) {
+      return explorerItems.find(function (item) {
+        return item.id === decoded.slice("cheatsheet:".length);
+      }) || null;
+    }
+
+    slug = decoded.replace(/\/+$/, "");
+    if (!slug) {
+      return null;
+    }
+
+    return explorerItems.find(function (item) {
+      return slugifyHash(item.title || item.id) === slug || slugifyHash(item.id) === slug;
+    }) || null;
+  }
+
+  function isCheatsheetModalHash(hash) {
+    return !!findCheatsheetItemByHash(hash);
+  }
+
+  function cheatsheetFilterHash(tag) {
+    var normalized = normalizeTagValue(tag);
+
+    return normalized && normalized !== "all"
+      ? "#tag-" + slugifyHash(normalized)
+      : "#quick-reference";
+  }
+
+  function findCheatsheetTagByHash(hash) {
+    var raw = String(hash || "").replace(/^#/, "").toLowerCase().replace(/\/+$/, "");
+    var candidate;
+    var hasTag;
+
+    if (raw.indexOf("tag-") !== 0) {
+      return "";
+    }
+
+    candidate = normalizeTagValue(raw.slice(4));
+    hasTag = explorerItems.some(function (item) {
+      return (item.__tags || getItemTags(item)).indexOf(candidate) !== -1;
+    });
+
+    return hasTag ? candidate : "";
+  }
+
+  function isCheatsheetTagHash(hash) {
+    return !!findCheatsheetTagByHash(hash);
+  }
+
+  function quickstartSectionTarget(hash) {
+    var id = String(hash || "").replace(/^#/, "");
+    var target;
+
+    try {
+      id = decodeURIComponent(id);
+    } catch (error) {
+      // Keep the literal hash when it contains an invalid escape sequence.
+    }
+
+    target = document.getElementById(id);
+    return target && target.closest(".rabbit-step") && target.closest("[data-quickstart-anchor]")
+      ? target
+      : null;
+  }
+
   function routeUrl(hash) {
     var cleaned = String(hash || "").replace(/^#/, "").toLowerCase();
     var pageFile = function (cleanName) {
@@ -814,13 +913,19 @@
     if (cleaned === "guided" || cleaned === "quickstart") {
       return pageUrl("quickstart");
     }
+    if (quickstartSectionTarget(hash)) {
+      return pageUrl("quickstart", hash);
+    }
     if (cleaned.indexOf("step-") === 0) {
       return pageUrl("quickstart", hash);
     }
     if (cleaned === "toolkit" || cleaned === "quick-reference" || cleaned === "cheatsheet" || cleaned === "explorer") {
       return pageUrl("cheatsheet");
     }
-    if (cleaned.indexOf("cheatsheet:") === 0) {
+    if (cleaned.indexOf("tag-") === 0) {
+      return pageUrl("cheatsheet", hash);
+    }
+    if (cleaned.indexOf("cheatsheet:") === 0 || isCheatsheetModalHash(hash)) {
       return pageUrl("cheatsheet", hash);
     }
     if (cleaned === "nodoc" || cleaned === "no-doc") {
@@ -911,14 +1016,28 @@
 
   function updateHashFromState(options) {
     var currentHash = window.location.hash || "";
+    var activeCheatsheetTag = normalizeTagSelection(state.activeTags)[0] || "";
 
     if (state.mode === "beginner") {
-      setHash(state.currentStep === 0 ? "#quickstart" : "#step-" + (state.currentStep + 1), options);
+      var sectionTarget = quickstartSectionTarget(currentHash);
+      var targetStep = sectionTarget && sectionTarget.closest(".rabbit-step");
+
+      if (targetStep && Number(targetStep.getAttribute("data-step-index")) === state.currentStep) {
+        setHash(currentHash, options);
+        return;
+      }
+
+      setHash("#step-" + (state.currentStep + 1), options);
       return;
     }
 
     if (state.mode === "explorer") {
-      setHash(currentHash.indexOf("#cheatsheet:") === 0 ? currentHash : "#quick-reference", options);
+      setHash(
+        isCheatsheetModalHash(currentHash) || currentHash.indexOf("#cheatsheet:") === 0
+          ? currentHash
+          : cheatsheetFilterHash(activeCheatsheetTag),
+        options
+      );
       return;
     }
 
@@ -986,6 +1105,25 @@
       top: Math.max(0, top),
       behavior: smoothBehavior()
     });
+  }
+
+  function scrollToQuickstartSection(target) {
+    var performScroll = function () {
+      window.requestAnimationFrame(function () {
+        scrollToTarget(target);
+        window.setTimeout(function () {
+          suppressObserver = false;
+          syncBeginnerStepFromScroll();
+        }, prefersReducedMotion ? 100 : 700);
+      });
+    };
+
+    suppressObserver = true;
+    if (document.readyState === "complete") {
+      performScroll();
+    } else {
+      window.addEventListener("load", performScroll, { once: true });
+    }
   }
 
   function resetProgressDock() {
@@ -1131,6 +1269,28 @@
     backToTopButton.tabIndex = showButton ? 0 : -1;
   }
 
+  function syncBeginnerStepFromScroll() {
+    var anchor;
+    var currentIndex = 0;
+
+    if (state.mode !== "beginner" || suppressObserver || !stepSections.length) {
+      return;
+    }
+
+    anchor = stickyOffset(stepSections[0]) + 24;
+    stepSections.forEach(function (section, index) {
+      if (section.getBoundingClientRect().top <= anchor) {
+        currentIndex = index;
+      }
+    });
+
+    if (currentIndex !== state.currentStep) {
+      state.currentStep = currentIndex;
+      updateBeginnerUI();
+      updateHashFromState({ replace: true });
+    }
+  }
+
   function scheduleLayoutSync() {
     if (layoutSyncFrame) {
       return;
@@ -1141,11 +1301,21 @@
       syncProgressDockPosition();
       syncGuideSidebar();
       syncBackToTopButton();
+      syncBeginnerStepFromScroll();
     });
   }
 
   function titleCaseTag(tag) {
     var normalized = normalizeTagValue(tag);
+    var groupedLabel = "";
+    tagGroups.some(function (group) {
+      var match = [group].concat(group.children || []).find(function (entry) {
+        return entry.tag === normalized;
+      });
+      if (match) groupedLabel = match.label;
+      return !!match;
+    });
+    if (groupedLabel) return groupedLabel;
     var labelMap = {
       ai: "AI",
       assets: "Assets",
@@ -1200,11 +1370,6 @@
     return allowedToolkitSorts[normalized] ? normalized : "alphabetical";
   }
 
-  function tagFacetWeight(tag) {
-    var index = tagFacetOrder.indexOf(tag);
-    return index === -1 ? tagFacetOrder.length : index;
-  }
-
   function getItemTags(item) {
     return uniqueList((item.tags || []).map(normalizeTagValue).filter(Boolean));
   }
@@ -1223,6 +1388,7 @@
   explorerItems.forEach(function (item, index) {
     item.__sourceOrder = index;
     item.__tags = getItemTags(item);
+    if (item.sourceRoute) item.sourceHref = routeUrl(item.sourceRoute);
   });
 
   function resolveGuideTarget(target, sourceHref) {
@@ -1530,7 +1696,7 @@
     document.body.classList.toggle("home-no-scroll", state.mode === "hub");
     syncAuthorNavToggle();
 
-    document.querySelectorAll(".nav-control").forEach(function (button) {
+    document.querySelectorAll(".nav-control[data-mode-target]").forEach(function (button) {
       var targetMode = button.getAttribute("data-mode-target");
       var isActive = targetMode === state.mode;
       button.classList.toggle("is-active", isActive);
@@ -1644,19 +1810,32 @@
   }
 
   function updateBeginnerUI() {
-    if (!rabbitFlow || !fastTrackToggle || !fastTrackStatus) {
+    if (!rabbitFlow) {
       return;
     }
 
     rabbitFlow.classList.toggle("track-minimal", state.fastTrack === "minimal");
-    fastTrackToggle.checked = state.fastTrack === "minimal";
-    fastTrackStatus.textContent = state.fastTrack === "minimal"
-      ? "Fast Track hides the longer notes and common mistakes."
-      : "Guided mode keeps notes, common mistakes, and extra context visible.";
+    if (fastTrackToggle) {
+      fastTrackToggle.checked = state.fastTrack === "minimal";
+    }
+    if (fastTrackStatus) {
+      fastTrackStatus.textContent = state.fastTrack === "minimal"
+        ? "Fast Track hides the longer notes and common mistakes."
+        : "Guided mode keeps notes, common mistakes, and extra context visible.";
+    }
     stepSections.forEach(function (section, index) {
       section.classList.toggle("is-active", index === state.currentStep);
       section.classList.toggle("is-complete", index < state.currentStep);
       section.classList.remove("is-locked");
+    });
+    progressButtons.forEach(function (button, index) {
+      button.classList.toggle("is-active", index === state.currentStep);
+      button.classList.toggle("is-complete", index < state.currentStep);
+      if (index === state.currentStep) {
+        button.setAttribute("aria-current", "step");
+      } else {
+        button.removeAttribute("aria-current");
+      }
     });
 
   }
@@ -1671,10 +1850,8 @@
     });
 
     return Object.keys(counts).sort(function (left, right) {
-      if (tagFacetWeight(left) !== tagFacetWeight(right)) {
-        return tagFacetWeight(left) - tagFacetWeight(right);
-      }
-      return titleCaseTag(left).localeCompare(titleCaseTag(right), undefined, { sensitivity: "base" });
+      return titleCaseTag(left).localeCompare(titleCaseTag(right), undefined, { sensitivity: "base" })
+        || left.localeCompare(right);
     }).map(function (tag) {
       return {
         tag: tag,
@@ -1691,10 +1868,27 @@
       var tag = pill.getAttribute("data-tag");
       var isAll = tag === "all";
       var isActive = isAll ? activeTags.length === 0 : activeTags.indexOf(tag) !== -1;
+      var parentGroup = tagGroups.find(function (group) {
+        return group.tag === pill.getAttribute("data-tag-parent");
+      });
+      if (parentGroup && parentGroup.children.some(function (child) {
+        return activeTags.indexOf(child.tag) !== -1;
+      })) isActive = true;
 
       pill.classList.toggle("is-active", isActive);
       pill.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
+
+    if (tagPillsMount) {
+      tagPillsMount.querySelectorAll("[data-tag-group]").forEach(function (node) {
+        var group = tagGroups.find(function (entry) {
+          return entry.tag === node.getAttribute("data-tag-group");
+        });
+        node.hidden = !group || ![group].concat(group.children).some(function (entry) {
+          return activeTags.indexOf(entry.tag) !== -1;
+        });
+      });
+    }
   }
 
   function renderTagPills() {
@@ -1702,18 +1896,39 @@
       return;
     }
 
-    tagPillsMount.innerHTML = [
-      '<button type="button" class="tag-pill is-active" data-tag="all" aria-pressed="true">All <span class="tag-pill-count">', explorerItems.length, "</span></button>"
-    ].concat(getTagFacets().map(function (facet) {
+    var facets = getTagFacets();
+    var childTags = tagGroups.reduce(function (tags, group) {
+      return tags.concat(group.children.map(function (child) { return child.tag; }));
+    }, []);
+
+    function tagButton(facet, label, isParent) {
       return [
-        '<button type="button" class="tag-pill" data-tag="', escapeAttribute(facet.tag), '" aria-pressed="false">',
-        escapeHtml(facet.label),
+        '<button type="button" class="tag-pill" data-tag="', escapeAttribute(facet.tag), '"',
+        isParent ? ' data-tag-parent="' + escapeAttribute(facet.tag) + '"' : "",
+        ' aria-pressed="false">',
+        escapeHtml(label || facet.label),
         ' <span class="tag-pill-count">',
         facet.count,
         "</span>",
         "</button>"
       ].join("");
-    })).join("");
+    }
+
+    tagPillsMount.innerHTML = '<div class="tag-pills cheatsheet-primary-tags">' +
+      '<button type="button" class="tag-pill is-active" data-tag="all" aria-pressed="true">All <span class="tag-pill-count">' + explorerItems.length + "</span></button>" +
+      facets.filter(function (facet) { return childTags.indexOf(facet.tag) === -1; }).map(function (facet) {
+        return tagButton(facet, "", tagGroups.some(function (group) { return group.tag === facet.tag; }));
+      }).join("") + "</div>" + tagGroups.map(function (group) {
+        var parent = facets.find(function (facet) { return facet.tag === group.tag; });
+        if (!parent) return "";
+        return '<div class="cheatsheet-subtag-group" data-tag-group="' + escapeAttribute(group.tag) + '" hidden>' +
+          '<div class="filter-label">' + escapeHtml(group.label) + ' topics</div>' +
+          '<div class="tag-pills" role="group" aria-label="' + escapeAttribute(group.label) + ' topic filter">' +
+          tagButton(parent, "All " + group.label) + group.children.map(function (child) {
+            var facet = facets.find(function (entry) { return entry.tag === child.tag; });
+            return facet ? tagButton(facet) : "";
+          }).join("") + "</div></div>";
+      }).join("");
 
     tagPills = Array.from(tagPillsMount.querySelectorAll(".tag-pill"));
     updateTagPillState();
@@ -1850,7 +2065,10 @@
       return;
     }
 
-    tagText = activeTags.length ? "Filter: " + titleCaseTag(activeTags[0]) : "All topics";
+    var parent = tagGroups.find(function (group) {
+      return group.children.some(function (child) { return child.tag === activeTags[0]; });
+    });
+    tagText = activeTags.length ? "Filter: " + (parent ? parent.label + " / " : "") + titleCaseTag(activeTags[0]) : "All topics";
     filterSummary.textContent = currentSortLabel() + " sort. " + tagText + (queryText ? '. Query: "' + queryText + '"' : ".");
   }
 
@@ -1949,7 +2167,11 @@
     emptyState.classList.toggle("d-none", visibleEntries.length !== 0);
   }
 
-  function setActiveTag(tag) {
+  function setActiveTag(tag, options) {
+    var config = Object.assign({
+      hash: true,
+      replaceHistory: false
+    }, options || {});
     var normalized = normalizeTagValue(tag);
 
     if (normalized === "all") {
@@ -1961,6 +2183,9 @@
     state.activeTag = state.activeTags[0] || "all";
     updateTagPillState();
     renderExplorer();
+    if (config.hash) {
+      updateHashFromState({ replace: config.replaceHistory });
+    }
     setLiveMessage(normalized === "all"
       ? "Showing all Cheatsheet cards."
       : "Filtering Cheatsheet cards by " + titleCaseTag(normalized) + ".");
@@ -2693,7 +2918,7 @@
         pill.className = "figure-expand-pill";
         pill.setAttribute("aria-hidden", "true");
         pill.textContent = "Click to expand";
-        figure.insertBefore(pill, image);
+        figure.insertBefore(pill, image.closest("picture") || image);
       }
     });
   }
@@ -2738,11 +2963,12 @@
       return;
     }
 
-    captionText = caption ? caption.textContent.trim() : (image.getAttribute("alt") || "");
+    captionText = figure.hasAttribute("data-hide-caption") ? "" : (caption ? caption.textContent.trim() : (image.getAttribute("alt") || ""));
     lastExpandedFigure = figure;
     imageLightboxImage.setAttribute("src", image.currentSrc || image.getAttribute("src") || "");
     imageLightboxImage.setAttribute("alt", image.getAttribute("alt") || "");
     imageLightboxCaption.textContent = captionText;
+    imageLightboxCaption.hidden = !captionText;
     imageLightbox.removeAttribute("hidden");
     imageLightbox.setAttribute("aria-hidden", "false");
     document.body.classList.add("image-lightbox-open");
@@ -2874,8 +3100,8 @@
           "    </span>",
           "  </div>",
           '  <div class="detail-resource-actions">',
-          '    <a class="btn btn-outline-primary rounded-pill px-3" href="', escapeHtml(item.href), '" target="_blank" rel="noreferrer">Open</a>',
-          '    <button class="copy-snippet copy-link-button" type="button" data-copy-text="', escapeAttribute(item.href), '">Copy link</button>',
+          '    <a class="btn resource-open-link" href="', escapeHtml(item.href), '" target="_blank" rel="noreferrer" aria-label="Open Markdown reference: ', escapeAttribute(item.label || "related reference"), '">Open reference</a>',
+          '    <button class="copy-snippet copy-link-button resource-copy-link" type="button" data-copy-text="', escapeAttribute(item.href), '">Copy link</button>',
           "  </div>",
           "</article>"
         ].join("");
@@ -3005,6 +3231,7 @@
     var sourceLink;
     var guideButton;
     var snippetCard;
+    var modalHash;
 
     if (!item) {
       return;
@@ -3094,6 +3321,8 @@
 
     hydrateVideoCards(bubbleModalElement);
     showBubbleModal();
+    modalHash = cheatsheetItemHash(item);
+    setHash(modalHash, { replace: window.location.hash === modalHash });
     setLiveMessage(item.title + " opened.");
   }
 
@@ -4221,6 +4450,7 @@
         resourceLinks: item.resourceLinks,
         milestones: item.milestones,
         tags: item.tags,
+        keywords: item.keywords,
         sourceHref: item.sourceHref,
         sourceLabel: item.sourceLabel,
         resultHref: routeUrl("#cheatsheet:" + encodeURIComponent(item.id)),
@@ -4237,6 +4467,24 @@
     nodocSearchEntries.forEach(function (entry) {
       searchIndex.push(entry);
       searchEntryMap[entry.id] = entry;
+    });
+
+    (window.LiveLabsMarkdownSections || []).forEach(function (section) {
+      section.patterns.forEach(function (pattern) {
+        var entry = createSearchEntry({
+          id: "markdown-" + pattern.id,
+          typeLabel: "Markdown reference",
+          title: pattern.title,
+          summary: pattern.description,
+          path: "Markdown / " + section.title,
+          body: [pattern.source || "", pattern.result, (pattern.notes || []).join(" ")].join(" "),
+          keywords: (pattern.keywords || "").split(/\s+/),
+          resultHref: resolveGuideRuntimePath("markdown/#" + pattern.id),
+          resultLabel: "Open Markdown example"
+        });
+        searchIndex.push(entry);
+        searchEntryMap[entry.id] = entry;
+      });
     });
 
     var workshopExampleEntry = createSearchEntry({
@@ -4259,52 +4507,20 @@
   }
 
   function createNoDocSearchEntries(markup) {
-    var documentFragment = new DOMParser().parseFromString(markup, "text/html");
-
-    return Array.from(documentFragment.querySelectorAll("details.nodoc-tree-group")).reduce(function (entries, panel, panelIndex) {
-      var panelSummary = panel.querySelector(":scope > summary");
-      var panelTitleNode = panelSummary && panelSummary.querySelector("span");
-      var panelTitle = panelTitleNode ? panelTitleNode.textContent.trim() : (panelSummary ? panelSummary.textContent.trim() : "NoDoc workshop section");
-      var panelText = panel.textContent.trim();
-      var panelEntry = createSearchEntry({
-        id: "nodoc-panel-" + panelIndex,
+    var source = new DOMParser().parseFromString(markup, "text/html");
+    return window.NoDocSearch.build(source).map(function (entry) {
+      return createSearchEntry({
+        id: "nodoc-panel-" + entry.panel + (entry.task ? "-task-" + entry.task : ""),
         typeLabel: "NoDoc workshop",
-        title: panelTitle,
-        summary: "Open this NoDoc workshop section and its authoring tasks.",
-        path: "NoDoc / " + panelTitle,
-        body: panelText,
-        resultHref: routeUrl("#nodoc:" + panelIndex),
-        open: {
-          kind: "nodoc",
-          panel: panelIndex,
-          task: 0
-        }
+        title: entry.title,
+        summary: entry.summary,
+        path: "NoDoc / " + entry.path,
+        body: entry.text,
+        keywords: entry.keywords.split(/\s+/),
+        resultHref: routeUrl("#nodoc:" + entry.panel + (entry.task ? ":" + entry.task : "")),
+        open: { kind: "nodoc", panel: entry.panel, task: entry.task }
       });
-
-      entries.push(panelEntry);
-      Array.from(panel.querySelectorAll("details.nodoc-task")).forEach(function (task, taskIndex) {
-        var taskSummary = task.querySelector(":scope > summary");
-        var taskTitle = taskSummary ? taskSummary.textContent.trim() : "Task " + (taskIndex + 1);
-        var taskEntry = createSearchEntry({
-          id: "nodoc-panel-" + panelIndex + "-task-" + (taskIndex + 1),
-          typeLabel: "NoDoc workshop",
-          title: taskTitle,
-          summary: "Open this task in " + panelTitle + ".",
-          path: "NoDoc / " + panelTitle + " / " + taskTitle,
-          body: task.textContent.trim(),
-          resultHref: routeUrl("#nodoc:" + panelIndex + ":" + (taskIndex + 1)),
-          open: {
-            kind: "nodoc",
-            panel: panelIndex,
-            task: taskIndex + 1
-          }
-        });
-
-        entries.push(taskEntry);
-      });
-
-      return entries;
-    }, []);
+    });
   }
 
   function loadNoDocSearchEntries() {
@@ -4359,7 +4575,7 @@
     if (entry.open.kind === "toolkit") {
       state.toolkitQuery = "";
       bubbleSearch.value = "";
-      setActiveTag("all");
+      setActiveTag("all", { hash: false });
       switchMode("explorer", { openBubble: entry.open.itemId });
       return;
     }
@@ -4418,7 +4634,7 @@
     setModeRegionVisibility(searchMode, mode === "search");
 
     if (mode !== "explorer") {
-      hideBubbleModal();
+      hideBubbleModal({ syncHash: false });
     }
 
     updateNav();
@@ -4487,7 +4703,16 @@
     }
 
     if (config.hash !== false) {
-      updateHashFromState({ replace: !!config.replaceHistory });
+      if (mode === "explorer" && config.openBubble) {
+        var requestedBubble = explorerItems.find(function (item) {
+          return item.id === config.openBubble;
+        });
+        setHash(requestedBubble ? cheatsheetItemHash(requestedBubble) : "#quick-reference", {
+          replace: !!config.replaceHistory
+        });
+      } else {
+        updateHashFromState({ replace: !!config.replaceHistory });
+      }
     }
 
     if (config.scroll !== false) {
@@ -4652,7 +4877,7 @@
     if (bubbleSearch) {
       bubbleSearch.value = "";
     }
-    setActiveTag("all");
+    setActiveTag("all", { hash: false });
     switchMode("explorer", { openBubble: id });
   }
 
@@ -4673,18 +4898,55 @@
       return;
     }
 
-    if (cleaned === "toolkit" || cleaned === "quick-reference" || cleaned === "cheatsheet" || cleaned === "explorer") {
-      switchMode("explorer", { scroll: true, forceTop: true, hash: false, announce: false });
+    var quickstartTarget = quickstartSectionTarget(hash);
+    if (quickstartTarget) {
+      var containingStep = quickstartTarget.closest(".rabbit-step");
+      var authoringPanel = quickstartTarget.closest("[data-authoring-panel]");
+      var authoringOnly = quickstartTarget.closest("[data-authoring-only]");
+      var authoringRoute = authoringPanel
+        ? authoringPanel.getAttribute("data-authoring-panel")
+        : (authoringOnly ? authoringOnly.getAttribute("data-authoring-only") : "");
+
+      if (authoringRoute === "source" || authoringRoute === "no-doc") {
+        setAuthoringRoute(authoringRoute, { history: false, announce: false });
+      }
+
+      index = Number(containingStep.getAttribute("data-step-index"));
+      state.currentStep = Number.isNaN(index) ? 0 : Math.max(0, Math.min(index, stepSections.length - 1));
+      switchMode("beginner", { scroll: false, hash: false, announce: false });
+      updateBeginnerUI();
+      scrollToQuickstartSection(quickstartTarget);
       return;
     }
 
-    if (cleaned.indexOf("cheatsheet:") === 0) {
+    if (cleaned === "toolkit" || cleaned === "quick-reference" || cleaned === "cheatsheet" || cleaned === "explorer") {
+      switchMode("explorer", { scroll: true, forceTop: true, hash: false, announce: false });
+      setActiveTag("all", { hash: false });
+      return;
+    }
+
+    if (cleaned.indexOf("tag-") === 0) {
+      var requestedTag = findCheatsheetTagByHash(hash);
+
+      switchMode("explorer", { scroll: true, forceTop: true, hash: false, announce: false });
+      setActiveTag(requestedTag || "all", { hash: false });
+      return;
+    }
+
+    if (cleaned.indexOf("cheatsheet:") === 0 || isCheatsheetModalHash(hash)) {
+      var requestedBubble = findCheatsheetItemByHash(hash);
+
+      if (!requestedBubble) {
+        switchMode("explorer", { scroll: true, forceTop: true, hash: false, announce: false });
+        return;
+      }
+
       switchMode("explorer", {
         scroll: true,
         forceTop: true,
         hash: false,
         announce: false,
-        openBubble: decodeURIComponent(cleaned.slice("cheatsheet:".length))
+        openBubble: requestedBubble.id
       });
       return;
     }
@@ -4728,7 +4990,7 @@
       index = Number(cleaned.replace("step-", "")) - 1;
       if (!Number.isNaN(index)) {
         state.currentStep = Math.max(0, Math.min(index, stepSections.length - 1));
-        switchMode("beginner", { scroll: false, hash: false, announce: false });
+        switchMode("beginner", { scroll: true, hash: false, announce: false });
         updateBeginnerUI();
         return;
       }
@@ -4739,6 +5001,7 @@
 
   function restoreHistoryRoute(route) {
     var restoreY = Number(route && route.scrollY);
+    var historyBubble;
 
     if (!route || !route.__authorGuideRoute) {
       applyHash(routeTokenFromLocation());
@@ -4778,6 +5041,15 @@
       guideSection: state.guideSection
     });
 
+    if (state.mode === "explorer") {
+      historyBubble = findCheatsheetItemByHash(route.hash || window.location.hash);
+      if (historyBubble) {
+        openBubble(historyBubble.id);
+      } else {
+        hideBubbleModal({ syncHash: false });
+      }
+    }
+
     window.setTimeout(function () {
       window.scrollTo({
         top: Number.isFinite(restoreY) ? Math.max(0, restoreY) : 0,
@@ -4787,40 +5059,6 @@
       scheduleLayoutSync();
     }, 0);
   }
-
-  var observer = new IntersectionObserver(function (entries) {
-    var visibleEntry;
-    var index;
-
-    if (state.mode !== "beginner" || suppressObserver) {
-      return;
-    }
-
-    visibleEntry = entries
-      .filter(function (entry) {
-        return entry.isIntersecting;
-      })
-      .sort(function (left, right) {
-        return right.intersectionRatio - left.intersectionRatio;
-      })[0];
-
-    if (!visibleEntry || visibleEntry.intersectionRatio < 0.58) {
-      return;
-    }
-
-    index = Number(visibleEntry.target.getAttribute("data-step-index") || "0");
-    if (index !== state.currentStep) {
-      state.currentStep = index;
-      updateBeginnerUI();
-      updateHashFromState({ replace: true });
-    }
-  }, {
-    threshold: [0.58]
-  });
-
-  stepSections.forEach(function (section) {
-    observer.observe(section);
-  });
 
   document.addEventListener("click", function (event) {
     var scrollTargetLink = event.target.closest("[data-scroll-target]");
@@ -4877,7 +5115,8 @@
         switchMode("beginner", {
           resetStep: !requestedStep,
           forceTop: isPrimaryNav || !!modeButton.closest(".hero-actions"),
-          scroll: !requestedStep
+          scroll: !requestedStep,
+          hash: !requestedStep
         });
         if (requestedStep) {
           goToStep(requestedStep - 1);
@@ -5276,6 +5515,11 @@
   });
 
   hydrateVideoCards(document);
+  // NoDoc content arrives after the initial page decoration. Apply the same
+  // accessible image controls after the workshop renderer has mounted it.
+  document.addEventListener("nodoc:content-ready", function () {
+    decorateExpandableMedia(document.getElementById("nodocWorkshopReader"));
+  });
   decorateExpandableMedia(document);
   initWmsStatusGraphs();
   updateNav();

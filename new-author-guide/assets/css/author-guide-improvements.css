@@ -1018,7 +1018,7 @@ body.home-no-scroll #app .app-footer .container {
   overflow-y: visible;
 }
 
-#app[data-redwood-creator-pass="2026-05-25"] a:not(.btn):not(.nav-control):not(.home-mini-step):not(.guide-nav-link):not(.guide-quick-link):not(.detail-resource-card) {
+#app[data-redwood-creator-pass="2026-05-25"] a:not(.btn):not(.nav-control):not(.nav-menu-link):not(.home-mini-step):not(.guide-nav-link):not(.guide-quick-link):not(.detail-resource-card) {
   color: var(--link-blue);
   text-underline-offset: 0.16em;
 }
@@ -2035,8 +2035,9 @@ body.home-no-scroll #app .app-footer .container {
 }
 
 #app[data-redwood-creator-pass="2026-05-25"] #beginnerMode .quickstart-step-tabs .progress-button {
-  cursor: default;
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
+  font: inherit;
 }
 
 #app[data-redwood-creator-pass="2026-05-25"] #beginnerMode .quickstart-step-tabs .progress-button::after {
@@ -2749,6 +2750,26 @@ body.home-no-scroll #app .app-footer .container {
 #app[data-redwood-creator-pass="2026-05-25"] .cheatsheet-tag-control {
   grid-column: 1 / -1;
   grid-row: 2;
+}
+
+#app .cheatsheet-primary-tags,
+#app .cheatsheet-subtag-group {
+  width: 100%;
+  min-width: 0;
+}
+
+#app .cheatsheet-subtag-group {
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(22, 21, 19, 0.12);
+}
+
+#app .cheatsheet-subtag-group[hidden] {
+  display: none;
+}
+
+#app .cheatsheet-subtag-group .filter-label {
+  margin-bottom: 0.55rem;
 }
 
 #app[data-redwood-creator-pass="2026-05-25"] .cheatsheet-toolbar-controls .search-group {
@@ -4622,6 +4643,426 @@ body.home-no-scroll #app .hub-hero {
   }
 }
 
+/* NoDoc MCP: setup checkpoints, workflow chooser, and copyable recipes. */
+#nodocMode .nodoc-mcp-source {
+  color: #546159;
+  font-size: 0.88rem;
+}
+#nodocMode .nodoc-mcp-index {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 1.4rem 0 1.8rem;
+}
+#nodocMode .nodoc-mcp-index a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid #cdd8cf;
+  border-radius: 0.65rem;
+  background: #f5f7f2;
+  color: #204f46;
+  text-decoration: none;
+}
+#nodocMode .nodoc-mcp-index a span { color: #46524c; font-size: 0.9rem; }
+#nodocMode .nodoc-mcp-index a:hover { background: #e8efe6; border-color: #507969; }
+#nodocMode .nodoc-mcp-index a:focus-visible { outline: 3px solid #386a60; outline-offset: 3px; }
+#nodocMode .nodoc-mcp-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1.2rem 0;
+}
+#nodocMode .nodoc-mcp-steps span {
+  padding: 0.45rem 0.8rem;
+  background: #e8efe6;
+  border-radius: 1.5rem;
+  color: #244d42;
+  font-weight: 650;
+}
+#nodocMode .nodoc-mcp-snippet {
+  margin: 1rem 0 1.4rem;
+  border: 1px solid #cdd8cf;
+  border-radius: 0.65rem;
+  overflow: hidden;
+  min-width: 0;
+}
+#nodocMode .nodoc-mcp-snippet-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0.85rem;
+  background: #eef2ec;
+}
+#nodocMode .nodoc-mcp-snippet .nodoc-command {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#app[data-redwood-creator-pass="2026-05-25"] #nodocMode .nodoc-mcp-figure img {
+  height: auto;
+  width: 100%;
+  max-height: none;
+}
+#nodocMode .nodoc-mcp-table-wrap { max-width: 100%; overflow-x: auto; }
+#nodocMode .nodoc-mcp-content td { overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  #nodocMode .nodoc-mcp-index { grid-template-columns: 1fr; }
+  #nodocMode .nodoc-mcp-snippet-bar { align-items: flex-start; gap: 0.5rem; }
+  #nodocMode .nodoc-mcp-snippet-bar .copy-snippet { flex-shrink: 0; }
+}
+
+/* Modal rhythm: use one outer section gap and one inner card gap so dynamic
+   mounts do not inherit a mixture of Bootstrap margins or sit flush together. */
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-content {
+  --modal-section-gap: 1.25rem;
+  --modal-inner-gap: 1rem;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-body {
+  display: grid;
+  align-content: start;
+  gap: var(--modal-section-gap);
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-body > * {
+  margin-block: 0 !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-grid,
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-support-mount {
+  gap: var(--modal-inner-gap);
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-panel,
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-media-card .card-body,
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .snippet-card .card-body,
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .detail-support-block {
+  padding: 1.25rem !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .detail-resource-grid {
+  gap: var(--modal-inner-gap);
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-footer {
+  gap: 0.75rem;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] #bubbleModal .modal-footer > * {
+  margin: 0 !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .image-lightbox-dialog {
+  gap: 1.25rem;
+  padding: 1.25rem;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+#app .image-lightbox-body {
+  min-height: 0;
+}
+
+#app .image-lightbox-body img {
+  max-height: 100%;
+  object-fit: contain;
+}
+
+#app .image-lightbox-caption {
+  max-height: 25vh;
+  overflow-y: auto;
+}
+
+/* Quiet resource cards: keep the shared reference pattern readable without
+   making every title, number, and action compete with Oracle Red. */
+#app[data-redwood-creator-pass="2026-05-25"] .detail-support-block {
+  border-color: rgba(79, 125, 123, 0.22) !important;
+  background: #f7faf9 !important;
+  color: var(--redwood-text);
+  font-family: "Oracle Sans", "Segoe UI", Arial, sans-serif;
+  box-shadow: 0 8px 20px rgba(49, 45, 42, 0.05);
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-support-block::before {
+  height: 4px !important;
+  background: var(--finance-teal) !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-support-block .detail-block-header h3 {
+  color: var(--oracle-bark);
+  font-family: "Oracle Sans", "Segoe UI", Arial, sans-serif;
+  font-weight: 600;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-support-block .detail-block-header p {
+  color: #637270;
+  font-family: "Oracle Sans", "Segoe UI", Arial, sans-serif;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-card {
+  min-height: 100%;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-color: rgba(79, 125, 123, 0.22) !important;
+  background: #fff !important;
+  color: var(--redwood-text);
+  font-family: "Oracle Sans", "Segoe UI", Arial, sans-serif;
+  box-shadow: 0 2px 8px rgba(49, 45, 42, 0.05);
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-card:hover,
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-card:focus-within {
+  border-color: rgba(79, 125, 123, 0.58) !important;
+  background: #fbfdfc !important;
+  box-shadow: 0 5px 14px rgba(49, 45, 42, 0.08);
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-number {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(79, 125, 123, 0.28);
+  border-radius: 6px !important;
+  background: #e4f0ee !important;
+  color: #2f6764 !important;
+  font-family: "Oracle Sans", "Segoe UI", Arial, sans-serif;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-main strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--oracle-bark) !important;
+  font-family: "Oracle Sans", "Segoe UI", Arial, sans-serif;
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-main span span {
+  display: block;
+  color: #637270;
+  font-family: "Oracle Sans", "Segoe UI", Arial, sans-serif;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-self: stretch;
+  padding-top: 0.15rem;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions .resource-open-link {
+  width: 100%;
+  min-height: 2.75rem !important;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem !important;
+  border: 1px solid rgba(79, 125, 123, 0.34) !important;
+  border-radius: 8px !important;
+  background: #eef6f5 !important;
+  color: #2f6764 !important;
+  text-align: left;
+  white-space: normal;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions .resource-open-link::after {
+  content: "↗";
+  flex: 0 0 auto;
+  margin-left: 0.6rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions .resource-open-link:hover,
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions .resource-open-link:focus-visible {
+  border-color: rgba(79, 125, 123, 0.7) !important;
+  background: #e4f0ee !important;
+  color: #234e4c !important;
+  transform: translateY(-1px) !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions .resource-copy-link {
+  justify-self: start;
+  min-height: 2.25rem !important;
+  padding: 0.35rem 0.7rem !important;
+  border: 1px solid rgba(49, 45, 42, 0.2) !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #637270 !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions .resource-copy-link:hover,
+#app[data-redwood-creator-pass="2026-05-25"] .detail-resource-actions .resource-copy-link:focus-visible {
+  border-color: rgba(79, 125, 123, 0.58) !important;
+  background: rgba(79, 125, 123, 0.08) !important;
+  color: #2f6764 !important;
+  transform: translateY(-1px) !important;
+}
+
+/* Final Cheatsheet menu treatment: direct parent link, in-flow Markdown child. */
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-group {
+  position: static;
+  display: block;
+  min-width: 0;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: none;
+  box-sizing: border-box;
+  color: rgba(255, 255, 255, 0.82);
+  list-style: none;
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary::-webkit-details-marker {
+  display: none;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-parent {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+  transform: none !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary .nav-menu-parent,
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary .nav-menu-parent.is-active {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary::after {
+  display: block;
+  flex: 0 0 0.48rem;
+  width: 0.48rem;
+  height: 0.48rem;
+  margin: -0.22rem 0.88rem 0 0.2rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  content: "";
+  transform: rotate(45deg);
+  transition: transform 180ms ease, margin 180ms ease;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-group[open] > .nav-menu-summary::after {
+  margin-top: 0.3rem;
+  transform: rotate(225deg);
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary:hover,
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary:focus-within {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary.is-active,
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-link.is-active {
+  border-color: rgba(199, 70, 52, 0.78);
+  background: var(--oracle-red);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.16) !important;
+  color: #fff;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-items {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0;
+  padding: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: none;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-link {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.52rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: normal;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-link .nav-control-icon {
+  display: inline-flex;
+  flex: 0 0 1.65rem;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: currentColor;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-link .nav-control-icon svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-link:hover,
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-link:focus-visible {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-summary.is-active .nav-control-icon,
+#app[data-redwood-creator-pass="2026-05-25"] .nav-menu-link.is-active .nav-control-icon {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+@media (max-width: 940px) {
+  #app[data-redwood-creator-pass="2026-05-25"] .nav-group-all .nav-menu-group {
+    grid-column: 1 / -1;
+  }
+}
+
 #nodocMode .nodoc-page-methods,
 #nodocMode .nodoc-metadata-guide {
   margin: 1.15rem 0 0;
@@ -4848,6 +5289,48 @@ body.home-no-scroll #app .hub-hero {
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+/* Shared overlay and snippet contrast fixes. Keep the page readable when a
+   modal is shown even if Bootstrap is unavailable during local preview. */
+#app #bubbleModal .modal-dialog {
+  display: flex;
+  align-items: center;
+  min-height: calc(100% - 2rem);
+  margin: 1rem auto;
+}
+
+#app #bubbleModal .modal-content {
+  width: 100%;
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+}
+
+#app #bubbleModal .modal-body {
+  overflow-y: auto;
+}
+
+.modal-backdrop.show,
+.modal-backdrop {
+  background-color: rgba(22, 21, 19, 0.28) !important;
+  opacity: 1 !important;
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+#app #bubbleModal .snippet-card pre {
+  border: 1px solid rgba(49, 45, 42, 0.18);
+  border-radius: 4px;
+  background: #fffdfa !important;
+  color: #161513 !important;
+  box-shadow: none;
+  -webkit-text-fill-color: #161513;
+}
+
+#app #bubbleModal .snippet-card pre code {
+  background: transparent !important;
+  color: inherit !important;
+  -webkit-text-fill-color: inherit;
 }
 
 #app[data-redwood-creator-pass="2026-05-25"] .authoring-route-panel {
@@ -5885,6 +6368,17 @@ body.home-no-scroll #app .hub-hero {
   gap: 0;
 }
 
+/* Keep expanded NoDoc lab groups inside an independently scrollable left rail. */
+@media (min-width: 992px) {
+  #nodocMode .nodoc-sidebar .guide-sidebar-card {
+    max-height: calc(100vh - 2rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
 #nodocMode .nodoc-nav-title,
 #nodocMode .nodoc-nav-tasks button {
   width: 100%;
@@ -5967,6 +6461,62 @@ body.home-no-scroll #app .hub-hero {
 
 #nodocMode .nodoc-tree-content {
   padding: .25rem 0 1rem;
+}
+
+/* NoDoc task rhythm: keep explanatory prose, actions, and command blocks visually distinct. */
+#nodocMode .nodoc-tree-content > p,
+#nodocMode .nodoc-tree-content > ul,
+#nodocMode .nodoc-tree-content > ol,
+#nodocMode .nodoc-task > p,
+#nodocMode .nodoc-task > ul,
+#nodocMode .nodoc-task > ol,
+#nodocMode .nodoc-task > section {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+#nodocMode .nodoc-tree-content p,
+#nodocMode .nodoc-task p {
+  line-height: 1.65;
+}
+
+#nodocMode .nodoc-task li > p {
+  margin-top: .75rem;
+  margin-bottom: .75rem;
+}
+
+#nodocMode .nodoc-task > ol > li,
+#nodocMode .nodoc-task > ul > li {
+  margin-bottom: .8rem;
+  line-height: 1.6;
+}
+
+#nodocMode .nodoc-task pre.nodoc-command,
+#nodocMode .nodoc-task pre {
+  margin: 1rem 0 1.15rem;
+  padding: .9rem 1rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#nodocMode .nodoc-history-scope + .nodoc-history-scope {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(36, 59, 83, .14);
+}
+
+#nodocMode .nodoc-history-scope > h5 {
+  margin: 0 0 .75rem;
+  color: #172b4d;
+}
+
+#nodocMode .nodoc-history-scope > p {
+  margin: 0 0 1rem;
+}
+
+#nodocMode .nodoc-task > .nodoc-callout {
+  margin-top: 1.25rem;
 }
 
 @media (max-width: 767.98px) {
