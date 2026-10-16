@@ -784,6 +784,7 @@ export function writeSummaryFiles(outputDir, summary, reportsRoot) {
 
   fs.writeFileSync(path.join(outputDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf-8");
   fs.writeFileSync(path.join(outputDir, "results.csv"), resultsCsv(summary), "utf-8");
+  fs.writeFileSync(path.join(outputDir, "finding-results.csv"), findingResultsCsv(summary), "utf-8");
   fs.writeFileSync(path.join(outputDir, "summary.md"), markdownSummary(summary), "utf-8");
   const withClient = (html) => html.replace("</head>", '<link rel="stylesheet" href="hub-ui.css"></head>').replace("</body>", '<script src="hub-client.js"></script></body>');
   fs.copyFileSync(new URL("../hub-ui.css", import.meta.url), path.join(outputDir, "hub-ui.css"));
@@ -871,6 +872,85 @@ function sectionFromFile(file) {
 }
 
 export function resultsCsv(summary) {
+  const header = [
+    "run_id",
+    "started_at",
+    "item_type",
+    "livelabs_id",
+    "item_title",
+    "item_status",
+    "issue_category_count",
+    "finding_count",
+    "priorities_found",
+    "has_p1",
+    "has_p2",
+    "has_p3",
+    "issue_categories",
+    "issue_codes",
+    "catalog_url",
+  ];
+  const rows = [];
+
+  for (const item of summary.catalogItems || []) {
+    const catalogItem = item.catalogItem || {};
+    const issues = item.issues || [];
+    const priorities = itemPriorities(item);
+    const labels = Array.from(new Set(issues.map((issue) => issue.label || issue.code).filter(Boolean)));
+    const codes = Array.from(new Set(issues.map((issue) => issue.code).filter(Boolean)));
+    const catalogUrl = sanitizeReportText(
+      catalogItem.absolute_url || catalogItem.normalized_href || catalogItem.href || "",
+    );
+
+    rows.push([
+      summary.runId || "",
+      summary.startedAt || "",
+      catalogItem.type || "item",
+      catalogItem.id || catalogItem.slug || "",
+      catalogItem.title || catalogItem.slug || catalogItem.id || "",
+      item.status || "",
+      issues.length,
+      issueFindingCount(issues),
+      priorities.join("; "),
+      priorities.includes("P1") ? "yes" : "",
+      priorities.includes("P2") ? "yes" : "",
+      priorities.includes("P3") ? "yes" : "",
+      labels.join("; "),
+      codes.join("; "),
+      catalogUrl,
+    ]);
+  }
+
+  if (rows.length === 0) {
+    for (const section of summary.sections || []) {
+      for (const test of section.tests || []) {
+        const unexpected = test.status !== test.expectedStatus && test.status !== "skipped";
+        const code = unexpected ? canonicalIssueCode(test.classification?.code || "QA_CHECK_FAILED") : "";
+        const priority = unexpected ? issuePriority({ code }) : "";
+        rows.push([
+          summary.runId || "",
+          summary.startedAt || "",
+          "test",
+          "",
+          test.title || "",
+          unexpected ? "failed" : test.status || "",
+          unexpected ? 1 : 0,
+          unexpected ? 1 : 0,
+          priority,
+          priority === "P1" ? "yes" : "",
+          priority === "P2" ? "yes" : "",
+          priority === "P3" ? "yes" : "",
+          unexpected ? test.classification?.label || "Test failure" : "",
+          code,
+          "",
+        ]);
+      }
+    }
+  }
+
+  return [header, ...rows].map((row) => row.map(summaryCsvCell).join(",")).join("\n") + "\n";
+}
+
+function findingResultsCsv(summary) {
   const header = [
     "run_id",
     "started_at",
@@ -3837,8 +3917,9 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
       <details class="download-menu">
         <summary>Download CSV</summary>
         <div>
-          <p>Use this file for bulk review, spreadsheets, or Codex.</p>
-          <a href="results.csv" download="livelabs-qa-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>All test results</strong><span>${escapeHtml(String(items.length))} items</span></a>
+          <p>Use the catalog summary for ownership review or the detailed file for every finding.</p>
+          <a href="results.csv" download="livelabs-qa-catalog-summary-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Catalog summary</strong><span>One row per catalog item</span></a>
+          <a href="finding-results.csv" download="livelabs-qa-findings-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Detailed findings</strong><span>One row per issue category</span></a>
         </div>
       </details>
     </div>

@@ -115,7 +115,7 @@ test("separates page timeouts from QA setup failures", () => {
   assert.equal(setupFailure.code, "QA_SETUP_FAILED");
 });
 
-test("results CSV keeps one row per issue and masks sensitive URL values", () => {
+test("catalog summary CSV keeps one row per item and masks sensitive URL values", () => {
   const parToken = "private-token-value";
   const csv = resultsCsv({
     runId: "2026-07-14T10-00-00Z",
@@ -170,7 +170,10 @@ test("results CSV keeps one row per issue and masks sensitive URL values", () =>
   });
 
   const lines = csv.trim().split("\n");
-  assert.equal(lines.length, 4);
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /livelabs_id,.*issue_category_count,finding_count,priorities_found,has_p1,has_p2,has_p3/);
+  assert.match(lines[1], /workshop-42/);
+  assert.match(lines[1], /,2,2,P2,,yes,,/);
   assert.match(csv, /BROKEN_VISIBLE_IMAGE/);
   assert.match(csv, /BROKEN_VISIBLE_LINK/);
   assert.match(csv, /livestack-7/);
@@ -179,7 +182,6 @@ test("results CSV keeps one row per issue and masks sensitive URL values", () =>
   assert.match(csv, /\/p\/\*\*\*/);
   assert.match(csv, /session=\*\*\*/);
   assert.doesNotMatch(csv, new RegExp(process.cwd().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(csv, /<qa-automation>/);
 });
 test("renders PAR scan failures with the actual missing source", () => {
   const html = issueDetailHtml(
@@ -733,7 +735,8 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.doesNotMatch(html, /sample_value/);
     assert.match(html, /Enter the sample sentence/);
     assert.match(html, /Open Lab 2/);
-    assert.match(html, /download="livelabs-qa-20260928T100000Z\.csv"/);
+    assert.match(html, /download="livelabs-qa-catalog-summary-20260928T100000Z\.csv"/);
+    assert.match(html, /download="livelabs-qa-findings-20260928T100000Z\.csv"/);
     assert.match(html, new RegExp(exactLabUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(html, new RegExp(exactLab4Url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.doesNotMatch(html, /Where to change it/);
