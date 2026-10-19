@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v20";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v22";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -785,6 +785,7 @@ export function writeSummaryFiles(outputDir, summary, reportsRoot) {
   fs.writeFileSync(path.join(outputDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf-8");
   fs.writeFileSync(path.join(outputDir, "results.csv"), resultsCsv(summary), "utf-8");
   fs.writeFileSync(path.join(outputDir, "finding-results.csv"), findingResultsCsv(summary), "utf-8");
+  fs.writeFileSync(path.join(outputDir, "catalog-results.json"), resultsJson(summary), "utf-8");
   fs.writeFileSync(path.join(outputDir, "summary.md"), markdownSummary(summary), "utf-8");
   const withClient = (html) => html.replace("</head>", '<link rel="stylesheet" href="hub-ui.css"></head>').replace("</body>", '<script src="hub-client.js"></script></body>');
   fs.copyFileSync(new URL("../hub-ui.css", import.meta.url), path.join(outputDir, "hub-ui.css"));
@@ -948,6 +949,82 @@ export function resultsCsv(summary) {
   }
 
   return [header, ...rows].map((row) => row.map(summaryCsvCell).join(",")).join("\n") + "\n";
+}
+
+export function resultsJson(summary) {
+  const items = reportCatalogItems(summary.catalogItems || []);
+  const payload = {
+    schemaVersion: 1,
+    run: {
+      id: summary.runId || "",
+      type: summary.runType || summary.reportChannel || "regression",
+      status: summary.status || "",
+      startedAt: summary.startedAt || "",
+      endedAt: summary.endedAt || "",
+      durationMs: summary.durationMs || 0,
+      counts: sanitizeJsonValue(summary.counts || {}),
+      catalogItemCount: items.length,
+    },
+    items: items.map((item) => {
+      const catalogItem = item.catalogItem || {};
+      const issues = item.issues || [];
+      const tests = item.tests || [];
+      return {
+        key: item.key || `${catalogItem.type || "item"}:${catalogItem.id || catalogItem.slug || ""}`,
+        type: catalogItem.type || "item",
+        livelabsId: catalogItem.id || catalogItem.slug || "",
+        title: catalogItem.title || catalogItem.slug || catalogItem.id || "",
+        status: item.status || "",
+        completionState: item.completionState || "",
+        catalogUrl: sanitizeReportText(
+          catalogItem.absolute_url || catalogItem.normalized_href || catalogItem.href || "",
+        ),
+        catalog: sanitizeJsonValue(catalogItem),
+        counts: sanitizeJsonValue(item.counts || {}),
+        sections: sanitizeJsonValue(item.sections || []),
+        authorNames: sanitizeJsonValue(item.authorNames || []),
+        priorities: itemPriorities(item),
+        issueCategoryCount: issues.length,
+        findingCount: issueFindingCount(issues),
+        issues: issues.map((issue) => ({
+          ...sanitizeJsonValue(issue),
+          priority: issuePriority(issue),
+        })),
+        checks: tests.map((test) => sanitizeJsonValue({
+          title: test.title || "",
+          section: test.section || "",
+          status: test.status || "",
+          expectedStatus: test.expectedStatus || "",
+          durationMs: test.durationMs || 0,
+          finalUrl: test.finalUrl || "",
+          finalTitle: test.finalTitle || "",
+          file: test.file || "",
+          line: test.line || "",
+          classification: test.classification || {},
+          errors: test.errors || [],
+        })),
+      };
+    }),
+  };
+
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+function sanitizeJsonValue(value, key = "") {
+  if (value == null || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (/^(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key|x-auth-token|token|access_token|p_instance|session)$/i.test(key)) {
+      return value ? "***" : "";
+    }
+    return sanitizeReportText(value);
+  }
+  if (Array.isArray(value)) return value.map((item) => sanitizeJsonValue(item));
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, childValue]) => [childKey, sanitizeJsonValue(childValue, childKey)]),
+    );
+  }
+  return sanitizeReportText(String(value));
 }
 
 function findingResultsCsv(summary) {
@@ -3915,11 +3992,12 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
         <p>Search or filter the tested catalog, then open one row to see its issues and checks.</p>
       </div>
       <details class="download-menu">
-        <summary>Download CSV</summary>
+        <summary>Download data</summary>
         <div>
-          <p>Use the catalog summary for ownership review or the detailed file for every finding.</p>
+          <p>Use the catalog summary for ownership review, the detailed CSV for findings, or JSON for complete item and issue records.</p>
           <a href="results.csv" download="livelabs-qa-catalog-summary-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Catalog summary</strong><span>One row per catalog item</span></a>
           <a href="finding-results.csv" download="livelabs-qa-findings-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Detailed findings</strong><span>One row per issue category</span></a>
+          <a href="catalog-results.json" download="livelabs-qa-catalog-results-${escapeAttribute(csvTimestamp(runId))}.json"><strong>Complete JSON</strong><span>Items, issues, evidence, checks, and safe URLs</span></a>
         </div>
       </details>
     </div>

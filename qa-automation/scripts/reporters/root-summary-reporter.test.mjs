@@ -10,6 +10,7 @@ import {
   issueDetailHtml,
   reportHistoryPageHtml,
   resultsCsv,
+  resultsJson,
   replaceLatestReportWithRun,
   writeReportHistory,
   writeSummaryFiles,
@@ -182,6 +183,81 @@ test("catalog summary CSV keeps one row per item and masks sensitive URL values"
   assert.match(csv, /\/p\/\*\*\*/);
   assert.match(csv, /session=\*\*\*/);
   assert.doesNotMatch(csv, new RegExp(process.cwd().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("complete JSON keeps item and issue evidence while masking sensitive values", () => {
+  const parToken = "private-par-token";
+  const json = resultsJson({
+    runId: "2026-10-19T10-00-00-000Z",
+    runType: "regression",
+    status: "completed-with-issues",
+    startedAt: "2026-10-19T10:00:00.000Z",
+    endedAt: "2026-10-19T10:05:00.000Z",
+    durationMs: 300000,
+    counts: { total: 1, failed: 1 },
+    catalogItems: [
+      {
+        key: "workshop:42",
+        status: "failed",
+        completionState: "completed",
+        counts: { total: 1, failed: 1 },
+        sections: ["Catalog PAR Links"],
+        authorNames: ["Example Author"],
+        catalogItem: {
+          type: "workshop",
+          id: "42",
+          title: "Example workshop",
+          absolute_url: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=42&session=12345",
+        },
+        issues: [
+          {
+            code: "STALE_PAR_LINK",
+            label: "Stale PAR link",
+            severity: "blocker",
+            message: "The download returned HTTP 404.",
+            section: "Catalog PAR Links",
+            details: [
+              {
+                masked_url: `https://objectstorage.example.com/p/${parToken}/n/ns/b/bucket/o/file.zip`,
+                pageUrl: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=42",
+                authorization: "Bearer private-auth-value",
+                sourceLine: 65,
+              },
+            ],
+          },
+        ],
+        tests: [
+          {
+            title: "Catalog PAR Links",
+            section: "Catalog PAR Links",
+            status: "failed",
+            expectedStatus: "passed",
+            durationMs: 2500,
+            finalUrl: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=42&p_instance=98765",
+            finalTitle: "Example workshop",
+            file: "tests/platform/generated/parLinks.generated.spec.ts",
+            line: 12,
+            classification: { code: "STALE_PAR_LINK", label: "Stale PAR link" },
+          },
+        ],
+      },
+    ],
+  });
+  const parsed = JSON.parse(json);
+
+  assert.equal(parsed.schemaVersion, 1);
+  assert.equal(parsed.run.catalogItemCount, 1);
+  assert.equal(parsed.items[0].livelabsId, "42");
+  assert.deepEqual(parsed.items[0].priorities, ["P1"]);
+  assert.equal(parsed.items[0].issues[0].priority, "P1");
+  assert.equal(parsed.items[0].issues[0].details[0].sourceLine, 65);
+  assert.equal(parsed.items[0].issues[0].details[0].authorization, "***");
+  assert.match(parsed.items[0].issues[0].details[0].masked_url, /\/p\/\*\*\*\/n\/ns/);
+  assert.match(parsed.items[0].issues[0].details[0].pageUrl, /view-workshop\?wid=42$/);
+  assert.match(parsed.items[0].catalogUrl, /session=\*\*\*/);
+  assert.match(parsed.items[0].checks[0].finalUrl, /p_instance=\*\*\*/);
+  assert.doesNotMatch(json, new RegExp(parToken));
+  assert.doesNotMatch(json, /private-auth-value|12345|98765/);
 });
 test("renders PAR scan failures with the actual missing source", () => {
   const html = issueDetailHtml(
@@ -503,7 +579,7 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v20"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v22"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
