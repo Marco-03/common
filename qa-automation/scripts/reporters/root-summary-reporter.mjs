@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v22";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v23";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -40,134 +40,141 @@ function sanitizeReportText(value) {
   return sanitizeSensitiveText(text);
 }
 const ISSUE_TYPE_DEFINITIONS = [
-  { code: "LINK_CHECK_INCOMPLETE", label: "Some links could not be verified", description: "Authentication, rate limiting, or a network problem blocked verification. These are not confirmed broken links.", priority: "P3" },
-  { code: "SOURCE_SCAN_INCOMPLETE", label: "Some instruction pages could not be checked", description: "The workshop opened, but one or more source pages or manifests could not be read.", priority: "P2" },
+  { code: "LINK_CHECK_INCOMPLETE", label: "Some links could not be verified", description: "Authentication, rate limiting, or a network problem blocked verification. These are not confirmed broken links.", audience: "internal" },
+  { code: "SOURCE_SCAN_INCOMPLETE", label: "Manifest issue (section not loading)", description: "One or more instruction source pages or manifest entries could not be read.", priority: "P1", audience: "external" },
   {
     code: "WORKSHOP_NOT_AVAILABLE",
     label: "Workshop not available",
     description: "The catalog item could not be opened or LiveLabs reported that its published route is unavailable.",
-    priority: "P1",
+    audience: "internal",
   },
   {
     code: "AUTHENTICATION_REQUIRED",
     label: "QA sign-in required - not tested",
     description: "The QA browser reached Oracle Sign In before it could inspect the item. This is a QA session problem, not a workshop defect.",
-    priority: "P3",
+    audience: "internal",
   },
   {
     code: "BROKEN_VISIBLE_IMAGE",
     label: "Broken visible image",
     description: "An image visible to the user did not load correctly.",
-    priority: "P2",
+    priority: "P1",
+    audience: "external",
   },
   {
     code: "OVERVIEW_STRUCTURE",
     label: "Overview structure",
     description: "The workshop overview route opened, but expected page controls or sections were missing.",
-    priority: "P2",
+    audience: "internal",
   },
   {
     code: "BROKEN_VISIBLE_LINK",
     label: "Broken visible link",
     description: "A visible link appears broken, unreachable, or returns an error.",
-    priority: "P2",
+    priority: "P1",
+    audience: "external",
   },
   {
     code: "BROKEN_EMBEDDED_CONTENT",
     label: "Broken embedded content",
     description: "Embedded content such as an iframe or media block did not render correctly.",
-    priority: "P2",
+    audience: "internal",
   },
   {
     code: "CONTENT_TEXT_DEFECT",
     label: "Content text defect",
     description: "The page appears to contain placeholder text, template text, TODOs, or obvious text defects.",
-    priority: "P3",
+    priority: "P2",
+    audience: "external",
   },
   {
     code: "MARKDOWN_FORMATTING",
     label: "Markdown formatting",
     description: "Markdown markers, links, headings, or code fences are formatted incorrectly in the workshop source.",
-    priority: "P3",
+    priority: "P2",
+    audience: "external",
   },
   {
     code: "WRITING_GRAMMAR",
     label: "Grammar or punctuation",
     description: "The workshop source contains a likely repeated word or punctuation-spacing error.",
-    priority: "P3",
+    priority: "P2",
+    audience: "external",
   },
   {
     code: "POSSIBLE_TYPO",
     label: "Possible typo",
     description: "A prose word in the workshop source may be misspelled and has a suggested correction.",
-    priority: "P3",
+    priority: "P2",
+    audience: "external",
   },
   {
     code: "CONTENT_RELEVANCE",
     label: "Wrong or unrelated instructions content",
     description: "The instructions page opened, but it appears blank, outdated, or connected to a different workshop.",
-    priority: "P3",
+    audience: "internal",
   },
   {
     code: "INSTRUCTIONS_FLOW",
-    label: "Instructions flow",
+    label: "Full instructions not loading",
     description: "Preview or tenancy instructions did not open, render, or pass the content checks.",
-    priority: "P2",
+    priority: "P1",
+    audience: "external",
   },
   {
     code: "ASSET_ACTION_FAILED",
     label: "Asset action failed",
     description: "A LiveStack demo, asset, download, or resource action did not work as expected.",
-    priority: "P2",
+    audience: "internal",
   },
   {
     code: "STALE_PAR_LINK",
     label: "Stale PAR link",
     description: "OCI Object Storage confirmed that a PAR link is no longer usable.",
     priority: "P1",
+    audience: "external",
   },
   {
     code: "PAR_LINK_UNVERIFIED",
     label: "PAR link unverified",
     description: "The PAR check still timed out or received a temporary response after retries.",
-    priority: "P3",
+    audience: "internal",
   },
   {
     code: "PAR_SCAN_INCOMPLETE",
     label: "PAR scan incomplete",
     description: "A workshop, LiveStack, resource, or instructions page could not be scanned for PAR links.",
-    priority: "P2",
+    audience: "internal",
   },
   {
     code: "PAGE_TIMED_OUT",
     label: "Page timed out",
     description: "The page did not finish loading or reach the expected state before the QA time limit.",
-    priority: "P3",
+    audience: "internal",
   },
   {
     code: "UNEXPECTED_DESTINATION",
     label: "Opened the wrong page",
     description: "The action opened a page, but it was not the LiveLabs page the check expected.",
-    priority: "P2",
+    audience: "internal",
   },
   {
     code: "QA_SETUP_FAILED",
     label: "QA setup failed",
     description: "The browser, saved sign-in state, or test fixture failed before the LiveLabs content could be checked.",
-    priority: "P3",
+    audience: "internal",
   },
   {
     code: "QA_CHECK_FAILED",
     label: "QA check did not complete",
     description: "The automated check stopped without enough evidence to report a workshop defect. Rerun it before changing content.",
-    priority: "P3",
+    audience: "internal",
   },
 ];
 
 const PRIORITY_DEFINITIONS = [
-  { code: "P1", label: "Fix first", description: "Public access is blocked or a confirmed PAR link is broken." },
-  { code: "P2", label: "High", description: "A page, instruction, link, image, embed, or action is unusable." },
-  { code: "P3", label: "Review", description: "Content quality or a temporary result needs review and confirmation." },
+  { code: "P1", label: "Learner blockers", description: "A link, image, PAR resource, or instruction section is unusable." },
+  { code: "P2", label: "Content review", description: "Content, formatting, grammar, or spelling needs author review." },
 ];
 
 export default class RootSummaryReporter {
@@ -408,7 +415,7 @@ export default class RootSummaryReporter {
         .map(([code, count]) => ({ code, count, label: classificationLabel(code) }))
         .sort(
           (left, right) =>
-            Number(issuePriority(left).slice(1)) - Number(issuePriority(right).slice(1)) ||
+            issuePriorityRank(left) - issuePriorityRank(right) ||
             right.count - left.count ||
             left.code.localeCompare(right.code),
         ),
@@ -458,20 +465,18 @@ function catalogEntryStatus(item) {
 const MANUAL_LANGUAGE_REVIEW_CODES = new Set(["MARKDOWN_FORMATTING", "WRITING_GRAMMAR", "POSSIBLE_TYPO"]);
 
 function operatorState(item) {
-  const codes = (item.issues || []).map((issue) => canonicalIssueCode(issue.code));
-  const incomplete = new Set(["LINK_CHECK_INCOMPLETE", "SOURCE_SCAN_INCOMPLETE", "PAR_SCAN_INCOMPLETE", "PAR_LINK_UNVERIFIED"]);
-  const blocked = new Set(["AUTHENTICATION_REQUIRED", "QA_SETUP_FAILED", "QA_CHECK_FAILED", "PAGE_TIMED_OUT"]);
-  if (codes.some((code) => !incomplete.has(code) && !blocked.has(code) && !MANUAL_LANGUAGE_REVIEW_CODES.has(code))) return "failed";
-  if (codes.some((code) => incomplete.has(code))) return "partial";
-  if (codes.some((code) => MANUAL_LANGUAGE_REVIEW_CODES.has(code))) return "review";
-  if (codes.length || item.status === "skipped") return "unchecked";
+  const issues = item.issues || [];
+  if (issues.some((issue) => issueAudience(issue) === "external" && !MANUAL_LANGUAGE_REVIEW_CODES.has(canonicalIssueCode(issue.code)))) return "failed";
+  if (issues.some((issue) => MANUAL_LANGUAGE_REVIEW_CODES.has(canonicalIssueCode(issue.code)))) return "review";
+  if (issues.some((issue) => issueAudience(issue) === "internal")) return "internal";
+  if (issues.length || item.status === "skipped") return "unchecked";
   return item.status === "failed" ? "unchecked" : "passed";
 }
 
 const OPERATOR_STATES = {
   failed: "Issues found",
   review: "Manual language review",
-  partial: "Partially checked",
+  internal: "Internal QA review",
   unchecked: "Could not check",
   passed: "Passed",
 };
@@ -885,7 +890,6 @@ export function resultsCsv(summary) {
     "priorities_found",
     "has_p1",
     "has_p2",
-    "has_p3",
     "issue_categories",
     "issue_codes",
     "catalog_url",
@@ -896,7 +900,7 @@ export function resultsCsv(summary) {
     const catalogItem = item.catalogItem || {};
     const issues = item.issues || [];
     const priorities = itemPriorities(item);
-    const labels = Array.from(new Set(issues.map((issue) => issue.label || issue.code).filter(Boolean)));
+    const labels = Array.from(new Set(issues.map((issue) => classificationLabel(issue.code)).filter(Boolean)));
     const codes = Array.from(new Set(issues.map((issue) => issue.code).filter(Boolean)));
     const catalogUrl = sanitizeReportText(
       catalogItem.absolute_url || catalogItem.normalized_href || catalogItem.href || "",
@@ -914,7 +918,6 @@ export function resultsCsv(summary) {
       priorities.join("; "),
       priorities.includes("P1") ? "yes" : "",
       priorities.includes("P2") ? "yes" : "",
-      priorities.includes("P3") ? "yes" : "",
       labels.join("; "),
       codes.join("; "),
       catalogUrl,
@@ -939,7 +942,6 @@ export function resultsCsv(summary) {
           priority,
           priority === "P1" ? "yes" : "",
           priority === "P2" ? "yes" : "",
-          priority === "P3" ? "yes" : "",
           unexpected ? test.classification?.label || "Test failure" : "",
           code,
           "",
@@ -954,15 +956,19 @@ export function resultsCsv(summary) {
 export function resultsJson(summary) {
   const items = reportCatalogItems(summary.catalogItems || []);
   const payload = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     run: {
       id: summary.runId || "",
       type: summary.runType || summary.reportChannel || "regression",
       status: summary.status || "",
+      scope: sanitizeJsonValue(summary.scope || {}),
+      completion: sanitizeJsonValue(summary.completion || {}),
       startedAt: summary.startedAt || "",
       endedAt: summary.endedAt || "",
       durationMs: summary.durationMs || 0,
+      configuredTests: summary.configuredTests || 0,
       counts: sanitizeJsonValue(summary.counts || {}),
+      failureCategories: sanitizeJsonValue(canonicalFailureCategories(summary.failureCategories || [])),
       catalogItemCount: items.length,
     },
     items: items.map((item) => {
@@ -983,31 +989,63 @@ export function resultsJson(summary) {
         counts: sanitizeJsonValue(item.counts || {}),
         sections: sanitizeJsonValue(item.sections || []),
         authorNames: sanitizeJsonValue(item.authorNames || []),
+        authorEmails: sanitizeJsonValue(item.authorEmails || []),
         priorities: itemPriorities(item),
+        tags: Array.from(new Set(issues.flatMap((issue) => [issueAudience(issue), issuePriority(issue)].filter(Boolean)))),
         issueCategoryCount: issues.length,
         findingCount: issueFindingCount(issues),
-        issues: issues.map((issue) => ({
-          ...sanitizeJsonValue(issue),
-          priority: issuePriority(issue),
-        })),
-        checks: tests.map((test) => sanitizeJsonValue({
-          title: test.title || "",
-          section: test.section || "",
-          status: test.status || "",
-          expectedStatus: test.expectedStatus || "",
-          durationMs: test.durationMs || 0,
-          finalUrl: test.finalUrl || "",
-          finalTitle: test.finalTitle || "",
-          file: test.file || "",
-          line: test.line || "",
-          classification: test.classification || {},
-          errors: test.errors || [],
-        })),
+        issues: issues.map((issue) => issueJsonRecord(issue, item)),
+        checks: tests.map((test) => sanitizeJsonValue(test)),
+        evidence: (summary.failures || [])
+          .filter((failure) => failure.catalogItem && (item.keys || [item.key]).includes(catalogItemKey(failure.catalogItem)))
+          .map((failure) => sanitizeJsonValue({
+            title: failure.title,
+            titlePath: failure.titlePath,
+            section: failure.section,
+            file: failure.file,
+            line: failure.line,
+            finalUrl: failure.finalUrl,
+            finalTitle: failure.finalTitle,
+            classification: failure.classification,
+            errors: failure.errors,
+            failedStep: failure.failedStep,
+            steps: failure.steps,
+            bugSummary: failure.bugSummary,
+            attachments: (failure.attachments || []).map((attachment) => ({
+              name: attachment.name,
+              contentType: attachment.contentType,
+              path: attachment.path,
+            })),
+          })),
       };
     }),
   };
 
   return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+function issueJsonRecord(issue, item) {
+  const details = operatorIssueDetails(issue);
+  const affectedItems = details
+    .map((detail, index) => operatorIssueDetail(detail, index, item, issue))
+    .filter(Boolean)
+    .sort((left, right) => affectedItemOrder(left, right, issue));
+  return sanitizeJsonValue({
+    ...issue,
+    label: classificationLabel(issue.code),
+    audience: issueAudience(issue),
+    priority: issuePriority(issue) || null,
+    tags: [issueAudience(issue), issuePriority(issue)].filter(Boolean),
+    findingCount: issueFindingCount([issue]),
+    problem: operatorIssueProblem(issue, item),
+    reproduction: operatorIssueReproduction(issue, item),
+    action: operatorIssueAction(issue, item),
+    location: issueLocationForItem(issue, item),
+    affectedItems,
+    ...(issue.code === "STALE_PAR_LINK" || issue.code === "PAR_LINK_UNVERIFIED"
+      ? { parGuidance: details.map(parLinkGuidance) }
+      : {}),
+  });
 }
 
 function sanitizeJsonValue(value, key = "") {
@@ -1092,7 +1130,7 @@ function findingResultsCsv(summary) {
       rows.push([
         ...base,
         issue.code || "",
-        issue.label || issue.code || "",
+        classificationLabel(issue.code),
         issue.severity || "",
         sanitizeReportText(issue.message || issue.summary || ""),
         catalogUrl,
@@ -1344,7 +1382,7 @@ function htmlSummary(summary, context = {}) {
       border-radius: 8px;
       display: grid;
       gap: 12px;
-      grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(120px, .45fr));
+      grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(120px, .45fr));
       margin-bottom: 20px;
       padding: 12px 14px;
     }
@@ -1613,6 +1651,10 @@ function htmlSummary(summary, context = {}) {
     .priority-badge.p1 { background: #fff0ed; color: #b42318; }
     .priority-badge.p2 { background: #fff7df; color: #8a5b00; }
     .priority-badge.p3 { background: #eef5fa; color: #075985; }
+    .result-row[data-active-audience="external"] .operator-issue[data-issue-audience="internal"],
+    .result-row[data-active-audience="internal"] .operator-issue[data-issue-audience="external"] { display: none; }
+    .result-row[data-active-audience="internal"] .author-contacts,
+    .result-row[data-active-audience="internal"] .result-actions .review-button { display: none; }
     .result-table { overflow-x: auto; }
     .result-table-head,
     .result-summary {
@@ -2632,7 +2674,7 @@ function htmlSummary(summary, context = {}) {
         operatorCounts.failed > 0 ? "warn" : "pass",
       )}
       ${metric("Manual grammar or typo review", operatorCounts.review, "warn")}
-      ${metric("Partially checked", operatorCounts.partial, "warn")}
+      ${metric("Internal QA review", operatorCounts.internal, "warn")}
       ${metric("Could not check", operatorCounts.unchecked, "warn")}
     </div>
     <section class="priority-overview" aria-label="Catalog items by issue priority">
@@ -2663,6 +2705,10 @@ function htmlSummary(summary, context = {}) {
         const priorities = (row.getAttribute("data-priority") || "").split(/\\s+/).filter(Boolean);
         return priorities.includes(activeFilter.slice("priority:".length));
       }
+      if (activeFilter.startsWith("audience:")) {
+        const audiences = (row.getAttribute("data-audience") || "").split(/\\s+/).filter(Boolean);
+        return audiences.includes(activeFilter.slice("audience:".length));
+      }
       return (
         row.getAttribute("data-status") === activeFilter ||
         row.getAttribute("data-type") === activeFilter ||
@@ -2683,6 +2729,18 @@ function htmlSummary(summary, context = {}) {
       for (const row of itemRows) {
         row.hidden = !visibleRows.has(row);
         if (row.hidden) row.open = false;
+        const audience = activeFilter.startsWith("audience:") ? activeFilter.slice("audience:".length) : "";
+        row.setAttribute("data-active-audience", audience);
+        const summary = row.querySelector("[data-row-result-label]");
+        const labels = row.querySelector("[data-row-issue-labels]");
+        const status = row.querySelector("[data-row-status-label]");
+        const heading = row.querySelector("[data-detail-heading]");
+        const badge = row.querySelector("[data-row-priority-badge]");
+        if (summary) summary.textContent = row.getAttribute("data-" + audience + "-summary") || row.getAttribute("data-all-summary") || "";
+        if (labels) labels.textContent = row.getAttribute("data-" + audience + "-labels") || row.getAttribute("data-all-labels") || "";
+        if (status) status.textContent = row.getAttribute("data-" + audience + "-status") || row.getAttribute("data-all-status") || "";
+        if (heading) heading.textContent = audience ? row.getAttribute("data-" + audience + "-summary") || "" : heading.getAttribute("data-original-heading") || "";
+        if (badge) badge.hidden = audience === "internal";
       }
       if (filterSelect) filterSelect.value = activeFilter;
       if (filterStatus) {
@@ -2993,7 +3051,7 @@ function reportCatalogItems(items) {
       const issues = (item.issues || [])
         .map((issue) => {
           const code = canonicalIssueCode(issue.code);
-          const normalizedIssue = code === issue.code ? issue : { ...issue, code, label: classificationLabel(code) };
+          const normalizedIssue = { ...issue, code, label: classificationLabel(code) };
           return operatorFacingIssueWithActionableDetails(normalizedIssue);
         })
         .filter((issue) => issue && issue.code !== "CONTENT_RELEVANCE");
@@ -3171,7 +3229,7 @@ function canonicalFailureCategories(categories) {
     .map(([code, count]) => ({ code, count, label: classificationLabel(code) }))
     .sort(
       (left, right) =>
-        Number(issuePriority(left).slice(1)) - Number(issuePriority(right).slice(1)) ||
+        issuePriorityRank(left) - issuePriorityRank(right) ||
         right.count - left.count ||
         left.code.localeCompare(right.code),
     );
@@ -3984,6 +4042,10 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
       items.filter((item) => itemPriorities(item).includes(priority.code)).length,
     ]),
   );
+  const audienceCounts = {
+    external: items.filter((item) => (item.issues || []).some((issue) => issueAudience(issue) === "external")).length,
+    internal: items.filter((item) => (item.issues || []).some((issue) => issueAudience(issue) === "internal")).length,
+  };
 
   return `<section class="results-panel" id="tested-items">
     <div class="results-heading">
@@ -4018,7 +4080,11 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
             priorityCounts.get(priority.code) || 0,
           )).join("\n")}
         </optgroup>
-        <optgroup label="Issues">
+        <optgroup label="Audience">
+          ${testedItemFilterOptionHtml("audience:external", "Author-facing issues", audienceCounts.external)}
+          ${testedItemFilterOptionHtml("audience:internal", "Internal QA", audienceCounts.internal)}
+        </optgroup>
+        <optgroup label="Issue types (findings)">
         ${categories
           .map(
             (category) =>
@@ -4091,6 +4157,10 @@ function testedItemRowHtml(item, runId, failures, context) {
   const sections = item.sections || [];
   const issueCodes = Array.from(new Set(issues.map((issue) => issue.code)));
   const priorities = itemPriorities(item);
+  const audiences = Array.from(new Set(issues.map(issueAudience)));
+  const externalIssues = issues.filter((issue) => issueAudience(issue) === "external");
+  const internalIssues = issues.filter((issue) => issueAudience(issue) === "internal");
+  const audienceSummary = (selected) => selected.length === 1 ? issueDisplayLabel(selected[0]) : findingSummaryLabel(selected);
   const priority = priorities[0] || "";
   const state = operatorState(item);
   const blockerCount = issues.filter((issue) => issue.severity === "blocker").length;
@@ -4130,10 +4200,20 @@ function testedItemRowHtml(item, runId, failures, context) {
     data-status="${escapeAttribute(state)}"
     data-type="${escapeAttribute(itemType)}"
     data-priority="${escapeAttribute(priorities.join(" "))}"
+    data-audience="${escapeAttribute(audiences.join(" "))}"
+    data-all-summary="${escapeAttribute(issueLabel)}"
+    data-external-summary="${escapeAttribute(audienceSummary(externalIssues))}"
+    data-internal-summary="${escapeAttribute(audienceSummary(internalIssues))}"
+    data-all-labels="${escapeAttribute(issues.map(issueDisplayLabel).join(", ") || "All completed checks passed")}"
+    data-external-labels="${escapeAttribute(externalIssues.map(issueDisplayLabel).join(", "))}"
+    data-internal-labels="${escapeAttribute(internalIssues.map(issueDisplayLabel).join(", "))}"
+    data-all-status="${escapeAttribute(statusLabel)}"
+    data-external-status="${escapeAttribute(externalIssues.every((issue) => MANUAL_LANGUAGE_REVIEW_CODES.has(issue.code)) ? "Manual language review" : "Issues found")}"
+    data-internal-status="Internal QA review"
     data-issues="${escapeAttribute(issueCodes.join(" "))}"
     data-search="${escapeAttribute(searchText)}">
     <summary class="result-summary">
-      <span><span class="pill ${statusTone}">${escapeHtml(statusLabel)}</span></span>
+      <span><span class="pill ${statusTone}" data-row-status-label>${escapeHtml(statusLabel)}</span></span>
       <span class="result-item">
         <strong>${escapeHtml(catalogItemDisplayTitle(item.catalogItem))}</strong>
         <small>${escapeHtml([catalogItemTypeLabel(itemType), catalogItemIdentifier(item.catalogItem)].filter(Boolean).join(" / "))}</small>
@@ -4144,8 +4224,8 @@ function testedItemRowHtml(item, runId, failures, context) {
         ${linkCoverageSummaryHtml(tests)}
       </span>
       <span class="result-finding">
-        <strong>${priority ? `<span class="priority-badge ${escapeAttribute(priority.toLowerCase())}">${escapeHtml(priority)}</span> ` : ""}${escapeHtml(issueLabel)}</strong>
-        <small>${escapeHtml(issues.map(issueDisplayLabel).join(", ") || "All completed checks passed")}</small>
+        <strong>${priority ? `<span class="priority-badge ${escapeAttribute(priority.toLowerCase())}" data-row-priority-badge>${escapeHtml(priority)}</span> ` : ""}<span data-row-result-label>${escapeHtml(issueLabel)}</span></strong>
+        <small data-row-issue-labels>${escapeHtml(issues.map(issueDisplayLabel).join(", ") || "All completed checks passed")}</small>
       </span>
     </summary>
     ${itemDetailHtml(item, failures, context)}
@@ -4164,7 +4244,7 @@ function itemDetailHtml(item, failures, context) {
   const authenticationOnly = issues.length > 0 && issues.every((issue) => issue.code === "AUTHENTICATION_REQUIRED");
   const state = operatorState(item);
   const issueHeading =
-    state === "review" ? "Should manually check grammar or typos" : state === "partial" ? "Coverage incomplete" : state === "unchecked"
+    state === "review" ? "Should manually check grammar or typos" : state === "internal" ? "Internal QA review" : state === "unchecked"
       ? "Could not check"
       : issues.length === 0
       ? "No issues found"
@@ -4173,7 +4253,7 @@ function itemDetailHtml(item, failures, context) {
   return `<div class="result-details">
     <div class="item-detail-heading">
       <div>
-        <h3>${escapeHtml(issueHeading)}</h3>
+        <h3 data-detail-heading data-original-heading="${escapeAttribute(issueHeading)}">${escapeHtml(issueHeading)}</h3>
         <p>${escapeHtml(
           issues.length === 0
             ? "Every completed check passed for this item."
@@ -4181,8 +4261,8 @@ function itemDetailHtml(item, failures, context) {
               ? "The QA browser needs a fresh Oracle sign-in before this item can be checked. No workshop change is requested."
             : state === "review"
               ? "Review these language suggestions and change only confirmed mistakes; they are not counted as product issues."
-            : ["partial", "unchecked"].includes(state)
-              ? "Some checks did not complete. Review the listed page or access problem before changing workshop content."
+            : ["internal", "unchecked"].includes(state)
+              ? "The QA team must investigate these results before requesting a workshop change."
             : "Review each problem below, make the change, then add the item to the retest list.",
         )}</p>
       </div>
@@ -4191,7 +4271,7 @@ function itemDetailHtml(item, failures, context) {
         ${issues.length > 0 && state === "failed" && !hasParIssues && !authenticationOnly ? `<button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}">Add to Retest List</button>` : ""}
       </div>
     </div>
-    ${issues.length > 0 && !authenticationOnly ? workshopAuthorContactsHtml(item) : ""}
+    ${issues.some((issue) => issueAudience(issue) === "external") ? workshopAuthorContactsHtml(item) : ""}
     ${
       issues.length > 0
         ? operatorIssueListHtml(issues, item, context)
@@ -4246,7 +4326,7 @@ function priorityBadgeHtml(issue) {
   const priority = issuePriority(issue);
   return priority
     ? `<span class="priority-badge ${escapeAttribute(priority.toLowerCase())}" title="${escapeAttribute(priorityDefinition(priority).description)}">${escapeHtml(priority)}</span>`
-    : "";
+    : `<span class="priority-badge p3">Internal QA</span>`;
 }
 
 function operatorIssueHtml(issue, index, item, context) {
@@ -4257,7 +4337,7 @@ function operatorIssueHtml(issue, index, item, context) {
     return parScanOperatorIssueHtml(issue, index, item, context);
   }
 
-  const severityLabel = ["SOURCE_SCAN_INCOMPLETE", "LINK_CHECK_INCOMPLETE"].includes(issue.code) ? "Partially checked" : issue.code === "AUTHENTICATION_REQUIRED"
+  const severityLabel = issueAudience(issue) === "internal" ? "Internal QA" : issue.code === "AUTHENTICATION_REQUIRED"
     ? "Not tested"
     : issue.code === "QA_SETUP_FAILED" || issue.code === "QA_CHECK_FAILED" || issue.code === "PAGE_TIMED_OUT"
       ? "Run again"
@@ -4270,7 +4350,7 @@ function operatorIssueHtml(issue, index, item, context) {
   const sourceQualityIssue = ["MARKDOWN_FORMATTING", "WRITING_GRAMMAR", "POSSIBLE_TYPO"].includes(issue.code);
   const showLocationFooter = !sourceQualityIssue && issue.code !== "SOURCE_SCAN_INCOMPLETE";
 
-  return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
+  return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}" data-issue-audience="${escapeAttribute(issueAudience(issue))}">
     <div class="operator-issue-heading">
       ${priorityBadgeHtml(issue)}
       <span class="pill ${issue.severity === "blocker" ? "fail" : "warn"}">${escapeHtml(severityLabel)}</span>
@@ -4279,13 +4359,13 @@ function operatorIssueHtml(issue, index, item, context) {
     ${sourceQualityIssue ? "" : `<div class="issue-guidance">
       <p><strong>What is wrong:</strong> ${escapeHtml(operatorIssueProblem(issue, item))}</p>
       ${reproduction ? `<p><strong>How to reproduce:</strong> ${escapeHtml(reproduction)}</p>` : ""}
-      <p><strong>What to change:</strong> ${escapeHtml(operatorIssueAction(issue, item))}</p>
+      <p><strong>${issueAudience(issue) === "internal" ? "What QA should check" : "What to change"}:</strong> ${escapeHtml(operatorIssueAction(issue, item))}</p>
     </div>`}
     ${affected}
     ${showLocationFooter ? `<div class="issue-location-block">
       <div class="issue-location-row">
         <div class="issue-location-copy">
-          <span>Where to change it</span>
+          <span>${issueAudience(issue) === "internal" ? "Where to investigate" : "Where to change it"}</span>
           <strong>${escapeHtml(location.label)}</strong>
           ${location.detail ? `<small>${escapeHtml(location.detail)}</small>` : ""}
         </div>
@@ -4317,7 +4397,7 @@ function parOperatorIssueHtml(issue, index, item, context) {
   const reviewId = reviewEntryId(item, context.summaryRunId || "");
   const severityLabel = issue.code === "STALE_PAR_LINK" ? "Broken PAR" : "Check again";
 
-  return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
+  return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}" data-issue-audience="${escapeAttribute(issueAudience(issue))}">
     <div class="operator-issue-heading">
       ${priorityBadgeHtml(issue)}
       <span class="pill ${issue.code === "STALE_PAR_LINK" ? "fail" : "warn"}">${escapeHtml(severityLabel)}</span>
@@ -4517,12 +4597,12 @@ function parScanOperatorIssueHtml(issue, index, item, context) {
   const details = Array.isArray(issue.details) ? issue.details : [];
   const reviewId = reviewEntryId(item, context.summaryRunId || "");
   const pageCount = details.length || 1;
-  return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}">
+  return `<section class="operator-issue ${escapeAttribute(issue.severity || "major")}" data-issue-audience="${escapeAttribute(issueAudience(issue))}">
     <div class="par-entry-heading">
       <div class="operator-issue-heading">${priorityBadgeHtml(issue)}<span class="pill warn">Page not scanned</span><h4>${escapeHtml(index + 1)}. ${escapeHtml(issueDisplayLabel(issue))}</h4></div>
       <button class="review-button" type="button" data-review-action="retest" data-review-id="${escapeAttribute(reviewId)}" data-review-add-label="Add to PAR Retest" data-review-selected-label="Remove from PAR Retest">Add to PAR Retest</button>
     </div>
-    <div class="issue-guidance"><p><strong>What failed:</strong> ${escapeHtml(`${pageCount} workshop page${pageCount === 1 ? " was" : "s were"} not scanned, so PAR links on ${pageCount === 1 ? "that page" : "those pages"} were not checked.`)}</p><p><strong>What to change:</strong> Open each entry below and follow its specific fix.</p></div>
+    <div class="issue-guidance"><p><strong>What failed:</strong> ${escapeHtml(`${pageCount} workshop page${pageCount === 1 ? " was" : "s were"} not scanned, so PAR links on ${pageCount === 1 ? "that page" : "those pages"} were not checked.`)}</p><p><strong>What QA should check:</strong> Verify the listed pages in a browser and investigate why the scan stopped before requesting a source change.</p></div>
     <div class="issue-location-block">
       <div class="issue-location-heading"><div><h5>Where scanning stopped</h5><p>PAR links on these pages were not checked.</p></div></div>
       ${details.map((detail, detailIndex) => parScanLocationHtml(detail, detailIndex, item)).join("\n") || "<p>Source page was not recorded.</p>"}
@@ -5030,13 +5110,13 @@ function operatorIssueAction(issue, item) {
     case "SOURCE_SCAN_INCOMPLETE":
       return "Open each listed lab. If a page is blank or missing, restore its source or correct its manifest entry. A source-fetch failure alone does not prove that the rendered page is broken.";
     case "WORKSHOP_NOT_AVAILABLE":
-      return "If this item was retired, disable or unpublish its catalog card. If it should remain active, correct its LiveLabs ID or route, republish it, and rerun this item.";
+      return "Confirm the published item route in a normal browser. If it opens, investigate the QA navigation before asking the author to change anything.";
     case "AUTHENTICATION_REQUIRED":
       return "Refresh the QA browser sign-in session and rerun this item. Do not change the workshop unless the rerun reaches it and reports a content problem.";
     case "PAGE_TIMED_OUT":
       return "Rerun this item. If it times out again, inspect the reached page and network evidence before asking the workshop owner to change content.";
     case "UNEXPECTED_DESTINATION":
-      return "Correct the catalog or action route so it opens the expected LiveLabs page, then republish and rerun this item.";
+      return "Confirm the destination in a normal browser and inspect the QA navigation before requesting a catalog change.";
     case "QA_SETUP_FAILED":
       return "Repair the QA browser or saved sign-in setup, then rerun this item. Do not change the workshop based on this result.";
     case "QA_CHECK_FAILED":
@@ -5062,13 +5142,13 @@ function operatorIssueAction(issue, item) {
     case "INSTRUCTIONS_FLOW":
       return "Correct the instructions route or content that did not open, republish, and rerun this item.";
     case "ASSET_ACTION_FAILED":
-      return "Repair the exact asset action listed below, or remove that action if it is no longer required, then rerun this item.";
+      return "Confirm the action with the required access, then ask the owner to repair it only if it fails for learners.";
     case "STALE_PAR_LINK":
       return "Replace the broken PAR link at every recorded source location, republish, and rerun the PAR audit.";
     case "PAR_LINK_UNVERIFIED":
       return "Run the PAR audit for this LiveLabs item again before changing its content.";
     case "PAR_SCAN_INCOMPLETE":
-      return "Restore or correct every source page that could not be scanned, then rerun the PAR audit.";
+      return "Check whether the listed pages render for learners, then investigate the scan failure and rerun the PAR audit.";
     default:
       return "Open the item, correct the reported problem, and rerun this item.";
   }
@@ -5475,25 +5555,32 @@ function issueTypeDefinition(code) {
     code: canonicalCode,
     label: "QA check did not complete",
     description: "The automated check stopped without enough evidence to identify a workshop defect. Rerun it before changing content.",
-    priority: "P3",
+    audience: "internal",
   };
 }
 
 function priorityDefinition(code) {
-  return PRIORITY_DEFINITIONS.find((item) => item.code === code) || PRIORITY_DEFINITIONS.at(-1);
+  return PRIORITY_DEFINITIONS.find((item) => item.code === code);
 }
 
 function issuePriority(issue) {
-  return issueTypeDefinition(issue?.code || "QA_CHECK_FAILED").priority || "P3";
+  return issueTypeDefinition(issue?.code || "QA_CHECK_FAILED").priority || "";
+}
+
+function issueAudience(issue) {
+  return issueTypeDefinition(issue?.code || "QA_CHECK_FAILED").audience || "internal";
+}
+
+function issuePriorityRank(issue) {
+  return issuePriority(issue) ? Number(issuePriority(issue).slice(1)) : Number.MAX_SAFE_INTEGER;
 }
 
 function itemPriority(item) {
-  const priorities = (item?.issues || []).map(issuePriority);
-  return priorities.sort((left, right) => Number(left.slice(1)) - Number(right.slice(1)))[0] || "";
+  return itemPriorities(item)[0] || "";
 }
 
 function itemPriorities(item) {
-  return Array.from(new Set((item?.issues || []).map(issuePriority))).sort(
+  return Array.from(new Set((item?.issues || []).map(issuePriority).filter(Boolean))).sort(
     (left, right) => Number(left.slice(1)) - Number(right.slice(1)),
   );
 }
@@ -5509,7 +5596,7 @@ function issueTypeGuideHtml() {
     <div class="issue-guide-grid">
       ${ISSUE_TYPE_DEFINITIONS.map(
         (item) => `<div class="issue-guide-item">
-          <strong><span class="priority-badge ${escapeAttribute(item.priority.toLowerCase())}">${escapeHtml(item.priority)}</span> ${escapeHtml(item.label)}</strong>
+          <strong>${item.priority ? `<span class="priority-badge ${escapeAttribute(item.priority.toLowerCase())}">${escapeHtml(item.priority)}</span>` : `<span class="priority-badge p3">Internal QA</span>`} ${escapeHtml(item.label)}</strong>
           <span>${escapeHtml(item.description)}</span>
         </div>`,
       ).join("\n")}

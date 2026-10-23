@@ -172,9 +172,9 @@ test("catalog summary CSV keeps one row per item and masks sensitive URL values"
 
   const lines = csv.trim().split("\n");
   assert.equal(lines.length, 3);
-  assert.match(lines[0], /livelabs_id,.*issue_category_count,finding_count,priorities_found,has_p1,has_p2,has_p3/);
+  assert.match(lines[0], /livelabs_id,.*issue_category_count,finding_count,priorities_found,has_p1,has_p2/);
   assert.match(lines[1], /workshop-42/);
-  assert.match(lines[1], /,2,2,P2,,yes,,/);
+  assert.match(lines[1], /,2,2,P1,yes,,/);
   assert.match(csv, /BROKEN_VISIBLE_IMAGE/);
   assert.match(csv, /BROKEN_VISIBLE_LINK/);
   assert.match(csv, /livestack-7/);
@@ -195,6 +195,10 @@ test("complete JSON keeps item and issue evidence while masking sensitive values
     endedAt: "2026-10-19T10:05:00.000Z",
     durationMs: 300000,
     counts: { total: 1, failed: 1 },
+    scope: { label: "Full regression" },
+    completion: { state: "completed" },
+    configuredTests: 1,
+    failureCategories: [{ code: "STALE_PAR_LINK", count: 1 }],
     catalogItems: [
       {
         key: "workshop:42",
@@ -233,6 +237,7 @@ test("complete JSON keeps item and issue evidence while masking sensitive values
             status: "failed",
             expectedStatus: "passed",
             durationMs: 2500,
+            retry: 1,
             finalUrl: "https://livelabs.oracle.com/ords/r/dbpm/livelabs/view-workshop?wid=42&p_instance=98765",
             finalTitle: "Example workshop",
             file: "tests/platform/generated/parLinks.generated.spec.ts",
@@ -242,14 +247,36 @@ test("complete JSON keeps item and issue evidence while masking sensitive values
         ],
       },
     ],
+    failures: [{
+      catalogItem: { type: "workshop", id: "42" },
+      title: "Catalog PAR Links",
+      section: "Catalog PAR Links",
+      file: "tests/platform/generated/parLinks.generated.spec.ts",
+      line: 12,
+      errors: ["The download returned HTTP 404."],
+      failedStep: { title: "Check download", status: "failed" },
+      steps: [{ title: "Check download", status: "failed" }],
+      attachments: [{ name: "highlighted-issue-screenshot", contentType: "image/png", path: "reports/runs/example/evidence/issue.png" }],
+    }],
   });
   const parsed = JSON.parse(json);
 
-  assert.equal(parsed.schemaVersion, 1);
+  assert.equal(parsed.schemaVersion, 2);
   assert.equal(parsed.run.catalogItemCount, 1);
+  assert.equal(parsed.run.scope.label, "Full regression");
+  assert.equal(parsed.run.failureCategories[0].label, "Stale PAR link");
   assert.equal(parsed.items[0].livelabsId, "42");
   assert.deepEqual(parsed.items[0].priorities, ["P1"]);
+  assert.deepEqual(parsed.items[0].tags, ["external", "P1"]);
   assert.equal(parsed.items[0].issues[0].priority, "P1");
+  assert.deepEqual(parsed.items[0].issues[0].tags, ["external", "P1"]);
+  assert.match(parsed.items[0].issues[0].problem, /HTTP 404/);
+  assert.match(parsed.items[0].issues[0].action, /Replace the broken PAR link/);
+  assert.equal(parsed.items[0].issues[0].findingCount, 1);
+  assert.equal(parsed.items[0].issues[0].parGuidance[0].badge, "Broken");
+  assert.equal(parsed.items[0].checks[0].retry, 1);
+  assert.equal(parsed.items[0].evidence[0].errors[0], "The download returned HTTP 404.");
+  assert.equal(parsed.items[0].evidence[0].attachments[0].path, "reports/runs/example/evidence/issue.png");
   assert.equal(parsed.items[0].issues[0].details[0].sourceLine, 65);
   assert.equal(parsed.items[0].issues[0].details[0].authorization, "***");
   assert.match(parsed.items[0].issues[0].details[0].masked_url, /\/p\/\*\*\*\/n\/ns/);
@@ -258,6 +285,37 @@ test("complete JSON keeps item and issue evidence while masking sensitive values
   assert.match(parsed.items[0].checks[0].finalUrl, /p_instance=\*\*\*/);
   assert.doesNotMatch(json, new RegExp(parToken));
   assert.doesNotMatch(json, /private-auth-value|12345|98765/);
+});
+
+test("JSON tags author priorities and internal findings without assigning internal priority", () => {
+  const parsed = JSON.parse(resultsJson({
+    runId: "2026-10-23T10-00-00-000Z",
+    catalogItems: [{
+      key: "workshop:42",
+      status: "failed",
+      catalogItem: { type: "workshop", id: "42", title: "Example workshop" },
+      issues: [
+        { code: "SOURCE_SCAN_INCOMPLETE", label: "Some instruction pages could not be checked" },
+        { code: "INSTRUCTIONS_FLOW", label: "Instructions flow" },
+        { code: "WRITING_GRAMMAR", label: "Grammar or punctuation", details: [{ marker: "teh", text: "This is teh issue.", label: "Possible typo" }] },
+        { code: "WORKSHOP_NOT_AVAILABLE", label: "Workshop not available" },
+        { code: "PAR_SCAN_INCOMPLETE", label: "PAR scan incomplete" },
+        { code: "AUTHENTICATION_REQUIRED", label: "QA sign-in required - not tested" },
+      ],
+      tests: [],
+    }],
+  }));
+  const issues = Object.fromEntries(parsed.items[0].issues.map((issue) => [issue.code, issue]));
+  assert.deepEqual(parsed.items[0].priorities, ["P1", "P2"]);
+  assert.deepEqual(parsed.items[0].tags, ["external", "P1", "P2", "internal"]);
+  assert.equal(issues.SOURCE_SCAN_INCOMPLETE.label, "Manifest issue (section not loading)");
+  assert.equal(issues.INSTRUCTIONS_FLOW.label, "Full instructions not loading");
+  assert.deepEqual(issues.SOURCE_SCAN_INCOMPLETE.tags, ["external", "P1"]);
+  assert.deepEqual(issues.WRITING_GRAMMAR.tags, ["external", "P2"]);
+  for (const code of ["WORKSHOP_NOT_AVAILABLE", "PAR_SCAN_INCOMPLETE", "AUTHENTICATION_REQUIRED"]) {
+    assert.deepEqual(issues[code].tags, ["internal"]);
+    assert.equal(issues[code].priority, null);
+  }
 });
 test("renders PAR scan failures with the actual missing source", () => {
   const html = issueDetailHtml(
@@ -579,16 +637,16 @@ test("renders overall regression items as searchable paginated expandable table 
 
     const html = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(html, /Overall regression results/);
-    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v22"/);
+    assert.match(html, /name="livelabs-qa-renderer" content="regression-table-v23"/);
     assert.match(html, /role="table" aria-label="Overall regression results"/);
     assert.match(html, /<details class="result-row failed"\s+id="item-workshop-877"/);
     assert.match(html, /<summary class="result-summary">/);
     assert.match(html, /\.result-row\[open\] > \.result-summary \{\s+background: #eaf4fb/);
     assert.match(html, /data-item-search/);
     assert.match(html, /<select data-item-filter/);
-    assert.ok(html.indexOf('<optgroup label="Priority">') < html.indexOf('<optgroup label="Issues">'));
+    assert.ok(html.indexOf('<optgroup label="Priority">') < html.indexOf('<optgroup label="Issue types (findings)">'));
     assert.ok(html.indexOf('value="priority:P1"') < html.indexOf('value="BROKEN_VISIBLE_LINK"'));
-    assert.match(html, /P2 High/);
+    assert.match(html, /P2 Content review/);
     assert.match(html, /LiveLabs ID 877/);
     assert.doesNotMatch(html, /class="filter-buttons"/);
     assert.match(html, /data-item-page-size/);
@@ -821,7 +879,7 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.match(html, /value="WRITING_GRAMMAR"/);
     assert.match(html, /value="POSSIBLE_TYPO"/);
     assert.match(html, /<span>Manual grammar or typo review<\/span>/);
-    assert.match(html, /<span class="pill warn">Manual language review<\/span>/);
+    assert.match(html, /<span class="pill warn" data-row-status-label>Manual language review<\/span>/);
     assert.match(html, /<strong>0<\/strong><span>Items with issues<\/span>/);
     assert.match(html, /<strong>1<\/strong><span>Manual grammar or typo review<\/span>/);
     assert.match(html, /Should manually check grammar or typos/);
@@ -1063,8 +1121,9 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
     assert.match(html, /moviestream_sandbox/);
     assert.match(html, /HTTP 404/);
     assert.doesNotMatch(html, /private-token/);
-    assert.match(html, /value="priority:P1">P1 Fix first \(1\)<\/option>/);
-    assert.match(html, /value="priority:P2">P2 High \(1\)<\/option>/);
+    assert.match(html, /value="priority:P1">P1 Learner blockers \(1\)<\/option>/);
+    assert.match(html, /value="priority:P2">P2 Content review \(0\)<\/option>/);
+    assert.match(html, /value="audience:internal">Internal QA \(1\)<\/option>/);
     assert.match(html, /Each catalog item counts once per priority, regardless of how many findings it contains/);
     assert.match(html, /Items with P1/);
     assert.match(html, /Items with P2/);
@@ -1073,7 +1132,7 @@ test("keeps the actionable PAR workflow inside the unified regression row", () =
   }
 });
 
-test("combines unavailable workshop routes and offers normal retest actions", () => {
+test("combines unavailable workshop routes as internal QA findings", () => {
   const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-report-exclusion-"));
   const outputDir = path.join(reportsRoot, "latest");
   fs.mkdirSync(outputDir, { recursive: true });
@@ -1104,10 +1163,11 @@ test("combines unavailable workshop routes and offers normal retest actions", ()
 
     const summaryHtml = fs.readFileSync(path.join(outputDir, "summary.html"), "utf-8");
     assert.match(summaryHtml, /Open workshop/);
-    assert.match(summaryHtml, /Add to Retest List/);
-    assert.match(summaryHtml, /P1/);
+    assert.match(summaryHtml, /Internal QA review/);
+    assert.match(summaryHtml, /data-priority=""/);
+    assert.doesNotMatch(summaryHtml, /data-review-action="retest" data-review-id=/);
     assert.match(summaryHtml, /Workshop not available/);
-    assert.match(summaryHtml, /disable or unpublish its catalog card/);
+    assert.match(summaryHtml, /Confirm the published item route in a normal browser/);
     assert.match(summaryHtml, /LiveLabs ID 4005/);
     assert.doesNotMatch(summaryHtml, /Fix List/);
     assert.equal(fs.existsSync(path.join(outputDir, "fix-list.html")), false);
