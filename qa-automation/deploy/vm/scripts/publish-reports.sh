@@ -40,15 +40,29 @@ if [[ -s "$par_file" ]]; then
     local stored_id
     stored_id="$(node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(s.runId||""))' "${run_dir}/summary.json")"
     [[ "$stored_id" == "$run_id" ]] || { echo "Run summary ID mismatch." >&2; return 1; }
-    local name object_name
-    for name in catalog-results.json results.csv finding-results.csv summary.json; do
-      [[ -f "${run_dir}/${name}" ]] || { echo "Missing archive file ${run_id}/${name}." >&2; return 1; }
+    [[ -f "${run_dir}/results.csv" ]] || { echo "Missing archive file ${run_id}/results.csv." >&2; return 1; }
+    if [[ "$channel" != "par" ]]; then
+      for required in catalog-results.json finding-results.csv; do
+        [[ -f "${run_dir}/${required}" ]] || { echo "Missing archive file ${run_id}/${required}." >&2; return 1; }
+      done
+    fi
+    local name object_name file
+    for file in "${run_dir}"/*.csv "${run_dir}"/*.json; do
+      [[ -f "$file" ]] || continue
+      name="$(basename "$file")"
+      [[ "$name" == "summary.json" ]] && continue
+      [[ "$name" =~ ^[A-Za-z0-9._-]+[.](csv|json)$ ]] || { echo "Invalid archive filename." >&2; return 1; }
       object_name="${prefix}/${channel}/runs/${run_id}/${name}"
       curl --fail --silent --show-error --retry 2 --retry-all-errors --max-time 300 \
-        --upload-file "${run_dir}/${name}" --output /dev/null "${par_url}${object_name}" || {
+        --upload-file "$file" --output /dev/null "${par_url}${object_name}" || {
           echo "Object Storage upload failed for ${run_id}/${name}." >&2; return 1;
         }
     done
+    object_name="${prefix}/${channel}/runs/${run_id}/summary.json"
+    curl --fail --silent --show-error --retry 2 --retry-all-errors --max-time 300 \
+      --upload-file "${run_dir}/summary.json" --output /dev/null "${par_url}${object_name}" || {
+        echo "Object Storage upload failed for ${run_id}/summary.json." >&2; return 1;
+      }
     node ./scripts/reporters/prune-local-reports.mjs --mark "$channel_root" "$run_id"
     echo "Archived ${channel} data for ${run_id}."
   }
