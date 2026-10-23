@@ -3,8 +3,8 @@ set -euo pipefail
 
 channel="${1:-}"
 case "$channel" in
-  par|regression|retest) ;;
-  *) echo "Usage: publish-reports.sh <par|regression|retest> [--all [--force]]" >&2; exit 2 ;;
+  regression|retest) ;;
+  *) echo "Usage: publish-reports.sh <regression|retest> [--all [--force]]" >&2; exit 2 ;;
 esac
 all_runs="${2:-}"
 [[ -z "$all_runs" || "$all_runs" == "--all" ]] || { echo "Unknown option: $all_runs" >&2; exit 2; }
@@ -22,7 +22,7 @@ par_file="${QA_REPORT_ARCHIVE_PAR_FILE:-/run/secrets/report_archive_par_url}"
 if [[ -s "$par_file" ]]; then
   namespace="${QA_OBJECT_STORAGE_NAMESPACE:-}"
   bucket="${QA_OBJECT_STORAGE_BUCKET:-}"
-  prefix="${QA_OBJECT_STORAGE_PREFIX:-livelabs-qa}"
+  prefix="${QA_OBJECT_STORAGE_PREFIX:-}"
   prefix="${prefix#/}"
   prefix="${prefix%/}"
   [[ "$namespace" =~ ^[A-Za-z0-9._-]+$ && "$bucket" =~ ^[A-Za-z0-9._-]+$ ]] || {
@@ -45,29 +45,21 @@ if [[ -s "$par_file" ]]; then
     local stored_id
     stored_id="$(node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(s.runId||""))' "${run_dir}/summary.json")"
     [[ "$stored_id" == "$run_id" ]] || { echo "Run summary ID mismatch." >&2; return 1; }
-    [[ -f "${run_dir}/results.csv" ]] || { echo "Missing archive file ${run_id}/results.csv." >&2; return 1; }
-    if [[ "$channel" != "par" ]]; then
-      for required in catalog-results.json finding-results.csv; do
-        [[ -f "${run_dir}/${required}" ]] || { echo "Missing archive file ${run_id}/${required}." >&2; return 1; }
-      done
-    fi
-    local name object_name file
-    for file in "${run_dir}"/*.csv "${run_dir}"/*.json; do
-      [[ -f "$file" ]] || continue
-      name="$(basename "$file")"
-      [[ "$name" == "summary.json" ]] && continue
-      [[ "$name" =~ ^[A-Za-z0-9._-]+[.](csv|json)$ ]] || { echo "Invalid archive filename." >&2; return 1; }
-      object_name="${prefix}/${channel}/runs/${run_id}/${name}"
+    local source_name archive_name object_name
+    for source_name in catalog-results.json results.csv; do
+      [[ -f "${run_dir}/${source_name}" ]] || { echo "Missing archive file ${run_id}/${source_name}." >&2; return 1; }
+    done
+    for source_name in catalog-results.json results.csv; do
+      case "$source_name" in
+        catalog-results.json) archive_name="report.json" ;;
+        results.csv) archive_name="report.csv" ;;
+      esac
+      object_name="${prefix}/reports/${channel}/${run_id}/${archive_name}"
       curl --fail --silent --show-error --retry 2 --retry-all-errors --max-time 300 \
-        --upload-file "$file" --output /dev/null "${par_url}${object_name}" || {
-          echo "Object Storage upload failed for ${run_id}/${name}." >&2; return 1;
+        --upload-file "${run_dir}/${source_name}" --output /dev/null "${par_url}${object_name}" || {
+          echo "Object Storage upload failed for ${run_id}/${archive_name}." >&2; return 1;
         }
     done
-    object_name="${prefix}/${channel}/runs/${run_id}/summary.json"
-    curl --fail --silent --show-error --retry 2 --retry-all-errors --max-time 300 \
-      --upload-file "${run_dir}/summary.json" --output /dev/null "${par_url}${object_name}" || {
-        echo "Object Storage upload failed for ${run_id}/summary.json." >&2; return 1;
-      }
     node ./scripts/reporters/prune-local-reports.mjs --mark "$channel_root" "$run_id"
     echo "Archived ${channel} data for ${run_id}."
   }
