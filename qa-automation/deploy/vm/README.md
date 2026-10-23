@@ -76,7 +76,7 @@ WMS IDs before each unified catalog scan.
 
 Report history is shared server-side, not stored in a viewer's browser. The VM keeps the five newest complete HTML report folders per channel, including their local JSON and CSV downloads. After a completed run, Jenkins archives every run-root JSON and CSV file under `<prefix>/<channel>/runs/<run-id>/` in Object Storage, then removes the oldest archived local report folder when there are more than five. The Object Storage archive has no retention limit. The report download menu continues to serve local files; HTML is never uploaded. If an upload fails, the local report remains and pruning does not run.
 
-For a cross-tenancy bucket, set `QA_OBJECT_STORAGE_NAMESPACE`, `QA_OBJECT_STORAGE_BUCKET`, and `QA_OBJECT_STORAGE_PREFIX` in the ignored VM `.env`. Place an object-write PAR ending in `/o/` in `secrets/report-archive-par-url` with owner-only permissions. Jenkins receives the write PAR; the browser never does. Use `bash ./deploy/vm/scripts/publish-reports.sh regression --all` from `qa-automation` inside Jenkins for a one-time backfill of existing runs.
+For a cross-tenancy bucket, set `QA_OBJECT_STORAGE_NAMESPACE`, `QA_OBJECT_STORAGE_BUCKET`, and `QA_OBJECT_STORAGE_PREFIX` in the ignored VM `.env`. Place an object-write PAR ending in `/o/` in `secrets/report-archive-par-url` with owner-only permissions. Jenkins receives the write PAR; the browser never does. Use `bash ./deploy/vm/scripts/publish-reports.sh regression --all` from `qa-automation` inside Jenkins for a one-time backfill of existing runs. After changing an archive prefix, use `--all --force` to copy already archived local runs into the new prefix before removing any old objects.
 
 To print non-secret access URLs from an authorized VM session:
 

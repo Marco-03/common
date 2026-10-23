@@ -4,10 +4,15 @@ set -euo pipefail
 channel="${1:-}"
 case "$channel" in
   par|regression|retest) ;;
-  *) echo "Usage: publish-reports.sh <par|regression|retest> [--all]" >&2; exit 2 ;;
+  *) echo "Usage: publish-reports.sh <par|regression|retest> [--all [--force]]" >&2; exit 2 ;;
 esac
 all_runs="${2:-}"
 [[ -z "$all_runs" || "$all_runs" == "--all" ]] || { echo "Unknown option: $all_runs" >&2; exit 2; }
+force="${3:-}"
+[[ -z "$force" || ( "$all_runs" == "--all" && "$force" == "--force" ) ]] || {
+  echo "Use --force only with --all." >&2; exit 2;
+}
+[[ $# -le 3 ]] || { echo "Too many options." >&2; exit 2; }
 
 reports_base="${QA_ROOT_REPORTS_BASE:-/var/qa-reports}"
 channel_root="${reports_base%/}/${channel}"
@@ -36,7 +41,7 @@ if [[ -s "$par_file" ]]; then
     [[ "$run_id" =~ ^[A-Za-z0-9._:-]+$ ]] || { echo "Invalid run ID." >&2; return 1; }
     local run_dir="${channel_root}/runs/${run_id}"
     [[ -f "${run_dir}/summary.json" ]] || { echo "Missing run summary: ${run_id}" >&2; return 1; }
-    [[ -f "${run_dir}/.archive-complete" ]] && return 0
+    [[ -f "${run_dir}/.archive-complete" && "$force" != "--force" ]] && return 0
     local stored_id
     stored_id="$(node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(s.runId||""))' "${run_dir}/summary.json")"
     [[ "$stored_id" == "$run_id" ]] || { echo "Run summary ID mismatch." >&2; return 1; }
