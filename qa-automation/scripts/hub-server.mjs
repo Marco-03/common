@@ -3,13 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { archiveObjectUrl } from "./report-archive.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-export function createHub({ directory, preview = false, reports = "/var/qa-reports", jenkins = process.env.QA_JENKINS_URL, fetcher = fetch, archiveFetcher = fetch, archive = {} } = {}) {
+export function createHub({ directory, preview = false, reports = "/var/qa-reports", jenkins = process.env.QA_JENKINS_URL, fetcher = fetch } = {}) {
   fs.mkdirSync(directory, { recursive: true });
   const file = path.join(directory, "state.json");
   let state = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : { retest: {}, runs: [] };
@@ -112,32 +109,6 @@ export function createHub({ directory, preview = false, reports = "/var/qa-repor
   return http.createServer(async (req, res) => {
     try {
       const pathname = new URL(req.url, "http://localhost").pathname;
-      const download = pathname.match(/^\/api\/hub\/download\/(regression|retest)\/([A-Za-z0-9._:-]+)\/(results\.csv|finding-results\.csv|catalog-results\.json)$/);
-      if (download && req.method === "GET") {
-        try {
-          const [, channel, runId, filename] = download;
-          const url = archiveObjectUrl({
-            parFile: archive.parFile || process.env.QA_REPORT_ARCHIVE_PAR_FILE || "/run/secrets/report_archive_par_url",
-            namespace: archive.namespace || process.env.QA_OBJECT_STORAGE_NAMESPACE,
-            bucket: archive.bucket || process.env.QA_OBJECT_STORAGE_BUCKET,
-            prefix: archive.prefix || process.env.QA_OBJECT_STORAGE_PREFIX,
-            channel, runId, filename,
-          });
-          const object = await archiveFetcher(url, { redirect: "error", signal: AbortSignal.timeout(120000) });
-          if (!object.ok || !object.body) return send(res, 502, { error: "Archived report data is unavailable." });
-          res.writeHead(200, {
-            "Content-Type": filename.endsWith(".json") ? "application/json; charset=utf-8" : "text/csv; charset=utf-8",
-            "Content-Disposition": `attachment; filename="livelabs-qa-${runId}-${filename}"`,
-            "Cache-Control": "private, no-store",
-            "X-Content-Type-Options": "nosniff",
-          });
-          await pipeline(Readable.fromWeb(object.body), res);
-        } catch {
-          if (!res.headersSent) return send(res, 502, { error: "Archived report data is unavailable." });
-          res.destroy();
-        }
-        return;
-      }
       if (pathname === "/api/hub/list" && req.method === "GET") return send(res, 200, { retest: state.retest });
       if (pathname === "/api/hub/runs" && req.method === "GET") return send(res, 200, await progress());
       if (pathname.startsWith("/api/hub/") && req.method === "POST") {

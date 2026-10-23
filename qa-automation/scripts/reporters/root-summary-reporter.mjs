@@ -15,7 +15,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v24";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v23";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -785,7 +785,6 @@ export function writeSummaryFiles(outputDir, summary, reportsRoot) {
     outputDir,
     historyHref,
     isLatest: path.basename(outputDir).toLowerCase() === "latest",
-    reportChannel: summary.reportChannel || reportChannelFromRoot(reportsRoot),
   };
 
   fs.writeFileSync(path.join(outputDir, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, "utf-8");
@@ -4058,9 +4057,9 @@ function testedItemsHtml(items, categories = [], runId, failures = [], context =
         <summary>Download data</summary>
         <div>
           <p>Use the catalog summary for ownership review, the detailed CSV for findings, or JSON for complete item and issue records.</p>
-          <a href="/api/hub/download/${context.reportChannel === "retest" ? "retest" : "regression"}/${escapeAttribute(encodeURIComponent(runId))}/results.csv" download="livelabs-qa-catalog-summary-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Catalog summary</strong><span>One row per catalog item</span></a>
-          <a href="/api/hub/download/${context.reportChannel === "retest" ? "retest" : "regression"}/${escapeAttribute(encodeURIComponent(runId))}/finding-results.csv" download="livelabs-qa-findings-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Detailed findings</strong><span>One row per issue category</span></a>
-          <a href="/api/hub/download/${context.reportChannel === "retest" ? "retest" : "regression"}/${escapeAttribute(encodeURIComponent(runId))}/catalog-results.json" download="livelabs-qa-catalog-results-${escapeAttribute(csvTimestamp(runId))}.json"><strong>Complete JSON</strong><span>Items, issues, evidence, checks, and safe URLs</span></a>
+          <a href="results.csv" download="livelabs-qa-catalog-summary-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Catalog summary</strong><span>One row per catalog item</span></a>
+          <a href="finding-results.csv" download="livelabs-qa-findings-${escapeAttribute(csvTimestamp(runId))}.csv"><strong>Detailed findings</strong><span>One row per issue category</span></a>
+          <a href="catalog-results.json" download="livelabs-qa-catalog-results-${escapeAttribute(csvTimestamp(runId))}.json"><strong>Complete JSON</strong><span>Items, issues, evidence, checks, and safe URLs</span></a>
         </div>
       </details>
     </div>

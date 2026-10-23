@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { writeReportHistory } from "./root-summary-reporter.mjs";
 
 const SAFE_RUN_ID = /^[A-Za-z0-9._:-]+$/;
-const DOWNLOAD_FILES = ["results.csv", "finding-results.csv", "catalog-results.json"];
 
 export function markRunArchived(channelRoot, runId) {
   if (!SAFE_RUN_ID.test(runId)) throw new Error("Invalid run ID.");
@@ -14,7 +13,6 @@ export function markRunArchived(channelRoot, runId) {
   const summary = JSON.parse(fs.readFileSync(path.join(runDir, "summary.json"), "utf8"));
   if (summary.runId !== runId) throw new Error("Run ID does not match its report.");
   fs.writeFileSync(path.join(runDir, ".archive-complete"), `${new Date().toISOString()}\n`);
-  for (const name of DOWNLOAD_FILES) fs.rmSync(path.join(runDir, name), { force: true });
 }
 
 export function pruneLocalReports(channelRoot, keep = 5) {

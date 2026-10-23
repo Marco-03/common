@@ -77,13 +77,8 @@ services:
       JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-qa-admin}
       QA_AUTH_TARGET_URL: ${QA_AUTH_TARGET_URL:-}
       QA_ROOT_REPORTS_BASE: /var/qa-reports
-      QA_OBJECT_STORAGE_NAMESPACE: ${QA_OBJECT_STORAGE_NAMESPACE:-}
-      QA_OBJECT_STORAGE_BUCKET: ${QA_OBJECT_STORAGE_BUCKET:-}
-      QA_OBJECT_STORAGE_PREFIX: ${QA_OBJECT_STORAGE_PREFIX:-livelabs-qa}
-      QA_REPORT_ARCHIVE_PAR_FILE: /run/secrets/report_archive_par_url
     secrets:
       - jenkins_admin_secret
-      - report_archive_par_url
     volumes:
       - hub_data:/var/qa-hub
       - qa_reports:/var/qa-reports:ro

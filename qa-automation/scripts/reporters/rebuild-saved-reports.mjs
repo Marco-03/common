@@ -51,11 +51,6 @@ export function rebuildReportChannel(reportsBase, channel, options = {}) {
   for (const run of runs) {
     if (!reportIsCurrent(run.outputDir, channel)) {
       writeSummaryFiles(run.outputDir, run.summary, channelRoot);
-      if (fs.existsSync(path.join(run.outputDir, ".archive-complete"))) {
-        for (const name of ["results.csv", "finding-results.csv", "catalog-results.json"]) {
-          fs.rmSync(path.join(run.outputDir, name), { force: true });
-        }
-      }
       rebuiltRunCount += 1;
     }
   }
