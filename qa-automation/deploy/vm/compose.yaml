@@ -22,12 +22,14 @@ services:
       QA_OBJECT_STORAGE_NAMESPACE: ${QA_OBJECT_STORAGE_NAMESPACE:-}
       QA_OBJECT_STORAGE_BUCKET: ${QA_OBJECT_STORAGE_BUCKET:-}
       QA_OBJECT_STORAGE_PREFIX: ${QA_OBJECT_STORAGE_PREFIX:-livelabs-qa}
+      QA_REPORT_ARCHIVE_PAR_FILE: /run/secrets/report_archive_par_url
       QA_OCI_AUTH_MODE: ${QA_OCI_AUTH_MODE:-instance_principal}
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     secrets:
       - jenkins_admin_secret
       - livelabs_username
       - livelabs_secret
+      - report_archive_par_url
     volumes:
       - jenkins_home:/var/jenkins_home
       - qa_reports:/var/qa-reports
@@ -75,8 +77,13 @@ services:
       JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-qa-admin}
       QA_AUTH_TARGET_URL: ${QA_AUTH_TARGET_URL:-}
       QA_ROOT_REPORTS_BASE: /var/qa-reports
+      QA_OBJECT_STORAGE_NAMESPACE: ${QA_OBJECT_STORAGE_NAMESPACE:-}
+      QA_OBJECT_STORAGE_BUCKET: ${QA_OBJECT_STORAGE_BUCKET:-}
+      QA_OBJECT_STORAGE_PREFIX: ${QA_OBJECT_STORAGE_PREFIX:-livelabs-qa}
+      QA_REPORT_ARCHIVE_PAR_FILE: /run/secrets/report_archive_par_url
     secrets:
       - jenkins_admin_secret
+      - report_archive_par_url
     volumes:
       - hub_data:/var/qa-hub
       - qa_reports:/var/qa-reports:ro
@@ -135,6 +142,8 @@ secrets:
     file: ./secrets/livelabs-username
   livelabs_secret:
     file: ./secrets/livelabs-secret
+  report_archive_par_url:
+    file: ./secrets/report-archive-par-url
   reports_htpasswd:
     file: ./secrets/reports.htpasswd
   portal_tls_certificate:

@@ -41,6 +41,7 @@ test("rebuilds shared latest and history pages from saved report JSON without ru
 
     assert.match(fs.readFileSync(immutableReport, "utf-8"), /Overall regression results/);
     assert.match(fs.readFileSync(latestReport, "utf-8"), /Overall regression results/);
+    assert.match(fs.readFileSync(latestReport, "utf-8"), /\/api\/hub\/download\/regression\//);
     assert.doesNotMatch(fs.readFileSync(latestReport, "utf-8"), /old report layout/);
     assert.match(fs.readFileSync(historyPage, "utf-8"), new RegExp(summary.runId));
     assert.match(fs.readFileSync(historyPage, "utf-8"), /Open latest/);

@@ -74,7 +74,9 @@ volume. The authenticated report portal is the only exposed path that can add
 or remove entries. Jenkins mounts the same registry read-only and filters those
 WMS IDs before each unified catalog scan.
 
-Report history is shared server-side, not stored in a viewer's browser. At startup, the service rebuilds the `latest/` page and saved-run selector from every existing `runs/*/summary.json`, so a newly authorized viewer immediately sees the same reports as the rest of the team. When the persistent report volume is empty and private Object Storage publishing is configured, startup restores the saved unified regression reports before rebuilding the index. Viewers never need to run a job just to populate the portal.
+Report history is shared server-side, not stored in a viewer's browser. The VM keeps the five newest HTML reports per channel, including their local `summary.json` render state. After a completed run, Jenkins archives `summary.json`, `catalog-results.json`, `results.csv`, and `finding-results.csv` under `<prefix>/<channel>/runs/<run-id>/` in Object Storage, then removes local export copies and the oldest archived HTML report. The archive has no retention limit. Report download links retrieve the archived files through the authenticated Hub; the private PAR never reaches the browser. HTML is never uploaded. If an upload fails, the local report remains and pruning does not run.
+
+For a cross-tenancy bucket, set `QA_OBJECT_STORAGE_NAMESPACE`, `QA_OBJECT_STORAGE_BUCKET`, and `QA_OBJECT_STORAGE_PREFIX` in the ignored VM `.env`. Place a read/write object-prefix PAR ending in `/o/` in `secrets/report-archive-par-url` with owner-only permissions. This secret is mounted into Jenkins and the Hub. A write-only PAR cannot serve downloads; a read-only PAR cannot archive runs. Use `bash ./deploy/vm/scripts/publish-reports.sh regression --all` from `qa-automation` inside Jenkins for a one-time backfill of existing runs. Backfill all retained reports before relying on the new download links.
 
 To print non-secret access URLs from an authorized VM session:
 

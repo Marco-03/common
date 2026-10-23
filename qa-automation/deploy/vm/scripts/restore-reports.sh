@@ -2,6 +2,10 @@
 set -euo pipefail
 
 reports_base="${QA_ROOT_REPORTS_BASE:-/var/qa-reports}"
+if [[ -s "${QA_REPORT_ARCHIVE_PAR_FILE:-/run/secrets/report_archive_par_url}" ]]; then
+  echo "Archived data stays in Object Storage; HTML report history stays on the VM."
+  exit 0
+fi
 namespace="${QA_OBJECT_STORAGE_NAMESPACE:-}"
 bucket="${QA_OBJECT_STORAGE_BUCKET:-}"
 

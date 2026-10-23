@@ -61,6 +61,9 @@ fi
 if [[ ! -f "${secrets_dir}/livelabs-secret" ]]; then
   : > "${secrets_dir}/livelabs-secret"
 fi
+if [[ ! -f "${secrets_dir}/report-archive-par-url" ]]; then
+  : > "${secrets_dir}/report-archive-par-url"
+fi
 
 if [[ ! -s "${secrets_dir}/tls.key" || ! -s "${secrets_dir}/tls.crt" ]]; then
   if [[ "$public_host" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
