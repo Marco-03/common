@@ -699,7 +699,7 @@ test("renders overall regression items as searchable paginated expandable table 
   }
 });
 
-test("renders source quality findings with plain fixes and exact lab links", () => {
+test("renders source quality findings with source locations but no replacement advice", () => {
   const reportsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "livelabs-source-quality-"));
   const outputDir = path.join(reportsRoot, "latest");
   fs.mkdirSync(outputDir, { recursive: true });
@@ -852,22 +852,22 @@ test("renders source quality findings with plain fixes and exact lab links", () 
     assert.match(html, /Markdown line 18/);
     assert.match(html, /Markdown line 242/);
     assert.match(html, /Find this text/);
-    assert.match(html, /Replace with/);
+    assert.doesNotMatch(html, /<span>Replace with<\/span>|<p class="source-quality-fix">/);
     assert.match(html, /<mark>to to<\/mark>/);
-    assert.match(html, /READY to PENDING to RUNNING to FINISHED/);
+    assert.match(html, /READY <mark>to to<\/mark> PENDING to RUNNING to FINISHED/);
     assert.match(html, /Task 5: Review and Run the Imported Notebook/);
     assert.match(html, /Open Lab 4/);
     assert.doesNotMatch(html, /Source: The status goes from READY/);
     assert.doesNotMatch(html, /Harvest_Data_Lake_Sandbox/);
     assert.doesNotMatch(html, /selected \.json/);
-    assert.match(html, /\*\*Important:\*\* Select the compartment/);
+    assert.match(html, /\*\*Important:<mark> \*\*<\/mark> Select the compartment/);
     assert.doesNotMatch(html, /Domains &gt; Domains/);
     assert.doesNotMatch(html, /#include &lt;stdio\.h&gt;/);
     assert.doesNotMatch(html, /package__name/);
     assert.doesNotMatch(html, /Open the navigation menu/);
     assert.doesNotMatch(html, /Use&amp;nbsp;text/);
     assert.doesNotMatch(html, /sample_value/);
-    assert.match(html, /Enter the sample sentence/);
+    assert.match(html, /Enter the sample <mark>sentnce<\/mark>/);
     assert.match(html, /Open Lab 2/);
     assert.match(html, /download="livelabs-qa-catalog-summary-20260928T100000Z\.csv"/);
     assert.match(html, /download="livelabs-qa-findings-20260928T100000Z\.csv"/);

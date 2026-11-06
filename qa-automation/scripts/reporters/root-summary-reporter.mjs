@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { locationOnlyExport, SOURCE_QUALITY_PRESENTATION } from "./source-quality-presentation.mjs";
 
 import {
   buildParAuditSummary,
@@ -15,7 +16,7 @@ import {
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const DEFAULT_REPORTS_ROOT = path.join(PROJECT_ROOT, "reports");
-export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v23";
+export const REGRESSION_REPORT_RENDERER_VERSION = "regression-table-v24";
 const REVIEW_STORAGE_KEY = "livelabs-qa-review-lists:v1";
 const PAR_RESOLVER_SOURCE_HOSTS = new Set([
   "livelabs.oracle.com",
@@ -104,7 +105,7 @@ const ISSUE_TYPE_DEFINITIONS = [
   {
     code: "POSSIBLE_TYPO",
     label: "Possible typo",
-    description: "A prose word in the workshop source may be misspelled and has a suggested correction.",
+    description: "A prose word in the workshop source may be misspelled; its exact source location is shown.",
     priority: "P2",
     audience: "external",
   },
@@ -1021,7 +1022,7 @@ export function resultsJson(summary) {
     }),
   };
 
-  return `${JSON.stringify(payload, null, 2)}\n`;
+  return `${JSON.stringify(locationOnlyExport(payload), null, 2)}\n`;
 }
 
 function issueJsonRecord(issue, item) {
@@ -4815,8 +4816,6 @@ function sourceQualityAffectedItemHtml(entry, item) {
   const section = String(entry.section || "").trim();
   const sourceLine = Number(entry.sourceLine || 0);
   const source = sourceQualityExcerpt(entry.sourceText, sourceQualityTarget(entry));
-  const correctedText = sourceQualityCorrectedText(entry);
-  const corrected = correctedText ? sourceQualityExcerpt(correctedText, "") : null;
   const actionLabel = entry.labNumber > 0 && isExactLabSourceUrl(entry.actionUrl)
     ? `Open Lab ${entry.labNumber}`
     : entry.actionLabel || catalogItemOpenLabel(item?.catalogItem?.type);
@@ -4831,13 +4830,13 @@ function sourceQualityAffectedItemHtml(entry, item) {
         ${sourceLine > 0 ? `<span class="source-quality-line">Markdown line ${escapeHtml(String(sourceLine))}</span>` : ""}
       </div>
       ${source ? `<div class="source-quality-edit"><span>Find this text</span><code>${source.html}</code></div>` : ""}
-      ${corrected ? `<div class="source-quality-edit"><span>Replace with</span><code>${corrected.html}</code></div>` : `<p class="source-quality-fix"><strong>Fix:</strong> ${escapeHtml(entry.suggestion || "Review and correct this source text.")}</p>`}
     </div>
     ${entry.actionUrl ? externalActionLinkHtml(entry.actionUrl, actionLabel) : ""}
   </div>`;
 }
 
 function sourceQualityTarget(entry) {
+  if (entry.highlightText) return String(entry.highlightText);
   const text = String(entry.sourceText || "");
   const marker = String(entry.marker || "");
   const label = String(entry.sourceLabel || entry.label || "");
@@ -4845,42 +4844,6 @@ function sourceQualityTarget(entry) {
     return text.match(/\s+\*\*/)?.[0] || marker;
   }
   return marker;
-}
-
-function sourceQualityCorrectedText(entry) {
-  const text = String(entry.sourceText || "");
-  const marker = String(entry.marker || "");
-  const label = String(entry.sourceLabel || entry.label || "");
-  const suggestion = String(entry.suggestion || "");
-  if (!text || !marker) return "";
-
-  if (/repeated word/i.test(label)) {
-    const words = marker.trim().split(/\s+/);
-    if (words.length === 2 && words[0].toLowerCase() === words[1].toLowerCase()) {
-      return replaceFirstCaseInsensitive(text, marker, words[0]);
-    }
-  }
-  if (/space before punctuation/i.test(label)) {
-    return replaceFirstCaseInsensitive(text, marker, marker.replace(/\s+([,.;!?])$/, "$1"));
-  }
-  if (/missing space after punctuation/i.test(label) && /^[,;:!?][A-Za-z]$/.test(marker)) {
-    return replaceFirstCaseInsensitive(text, marker, `${marker[0]} ${marker[1]}`);
-  }
-  if (/space before closing/i.test(label)) {
-    const target = text.match(/\s+\*\*/)?.[0] || "";
-    return target ? text.replace(target, "**") : "";
-  }
-  if (/typo/i.test(label)) {
-    const replacement = suggestion.match(/replace it with\s+["']([^"']+)["']/i)?.[1] || "";
-    return replacement ? replaceFirstCaseInsensitive(text, marker, replacement) : "";
-  }
-  return "";
-}
-
-function replaceFirstCaseInsensitive(text, search, replacement) {
-  const index = text.toLowerCase().indexOf(search.toLowerCase());
-  if (index < 0) return "";
-  return `${text.slice(0, index)}${replacement}${text.slice(index + search.length)}`;
 }
 
 function sourceQualityExcerpt(value, target, maxLength = 220) {
@@ -4985,7 +4948,7 @@ function operatorIssueProblem(issue, item) {
   }
   if (issue.code === "POSSIBLE_TYPO" && details.length > 0) {
     const first = details[0] || {};
-    return `The word "${first.marker || operatorIssueDetailLabel(first, 0) || "listed below"}" may be misspelled. The report includes a suggested correction and the exact source line.`;
+    return `The word "${first.marker || operatorIssueDetailLabel(first, 0) || "listed below"}" may be misspelled. The exact source line and lab location are shown.`;
   }
   if (issue.code === "CONTENT_RELEVANCE") {
     const detail = primaryOperatorIssueDetail(issue);
@@ -5051,14 +5014,15 @@ function operatorIssueDetail(detail, index, item, issue) {
   return {
     label,
     url,
-    detail: [location, sourceLine, sourceExcerpt, result].filter(Boolean).join(" / "),
+    detail: [location, sourceLine, sourceExcerpt, ...(sourceQualityIssue ? [] : [result])].filter(Boolean).join(" / "),
     actionUrl,
     actionLabel: sourceLocationActionLabel(detail, item?.catalogItem?.type),
     sourceQualityIssue,
     sourceLabel: detail.label || "",
     sourceText: detail.text || "",
     marker: detail.marker || "",
-    suggestion: result,
+    ...(detail.highlightText ? { highlightText: detail.highlightText } : {}),
+    ...(sourceQualityIssue ? { presentation: { ...SOURCE_QUALITY_PRESENTATION } } : { suggestion: result }),
     location: detail.location || "",
     labTitle: detail.labTitle || "",
     labNumber: Number(detail.labNumber || 0),

@@ -34,4 +34,12 @@ chown -R jenkins:jenkins "${NPM_CONFIG_CACHE}" /var/jenkins_home/.cache
 chown -R jenkins:jenkins /var/qa-reports
 chown jenkins:jenkins /var/jenkins_home
 
+# Compose mounts the upload PAR for root; Jenkins needs its own private runtime copy.
+archive_par_source="${QA_REPORT_ARCHIVE_PAR_FILE:-/run/secrets/report_archive_par_url}"
+if [[ -f "$archive_par_source" ]]; then
+  archive_par_runtime=/run/qa-report-archive-par-url
+  install -m 0400 -o jenkins -g jenkins "$archive_par_source" "$archive_par_runtime"
+  export QA_REPORT_ARCHIVE_PAR_FILE="$archive_par_runtime"
+fi
+
 exec /usr/bin/tini -- runuser --user jenkins --preserve-environment -- /usr/local/bin/jenkins.sh "$@"

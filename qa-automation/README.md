@@ -271,6 +271,45 @@ node ./scripts/qa.mjs tests/platform/smoke/public/newSpec.spec.ts
 
 ## Reports And Debugging
 
+### Rebuild HTML From A Saved JSON Export
+
+Use Node.js 20 or newer and the complete `report.json` supplied separately from
+Object Storage. No Jenkins instance, cloud credentials, browser installation,
+dependency installation, or new QA crawl is required for this command:
+
+```powershell
+# From qa-automation; keep the input JSON outside the checkout.
+node scripts/render-saved-report.mjs "C:/path/to/report.json" reports/imported --promote
+```
+
+On macOS/Linux, use the corresponding input path. Open
+`reports/imported/regression/latest/summary.html` directly in a browser. Retest
+exports use `retest/latest/summary.html`. The generated folder includes its CSS,
+JavaScript, JSON, and CSV downloads; keep these together when moving the HTML.
+The same command is available through `npm run report:from-json -- ...`.
+
+The original run ID and date are retained. A revision in `run.reportRevision`
+describes corrections to an older run, not a new execution. Imported HTML is
+marked accordingly. Screenshots and traces cannot be recreated from JSON alone.
+Standalone viewing does not provide Jenkins execution or server-side actions.
+
+Language and Markdown findings use the JSON presentation contract:
+
+```json
+{"sourceQuality":{"mode":"location-only","showReplacement":false,"showFixAdvice":false}}
+```
+
+This is stored under `presentation`. Render the issue label, original source
+text, marker/highlight, line number, and lab/source links. Do not synthesize
+replacement text. Suggested replacements are omitted from these issue records
+and their diagnostic evidence. Existing P1/P2/Internal categorization is kept.
+
+Use the latest corrected JSON if false positives were removed: updating the
+renderer does not re-scan source pages or remove findings from an older input.
+For a newer export of the same run, add `--replace-import`; the previous imported
+folder is backed up locally. Existing non-import run folders are never replaced.
+Generated reports and downloaded JSON/CSV files must not be committed to Git.
+
 Artifacts are written under `artifacts` and are ignored by Git. Every root report
 also writes a token-safe `results.csv`; one failed catalog item produces one row
 per distinct issue, while a passing item produces one row with blank issue fields.

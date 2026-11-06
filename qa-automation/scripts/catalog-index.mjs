@@ -308,6 +308,26 @@ async function waitForCards(page) {
   );
 }
 
+async function catalogPageFailure(page, options, error) {
+  const title = await page.title().catch(() => "unavailable");
+  const body = await page.locator("body").innerText().catch(() => "");
+  const incident = body.match(/Incident Number:\s*([^\s]+)/i)?.[1];
+  const screenshotPath = path.join(path.dirname(options.outputFile), "catalog-diagnostic.png");
+  let screenshot = screenshotPath;
+
+  try {
+    fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
+    await page.screenshot({ path: screenshotPath, fullPage: false });
+  } catch (screenshotError) {
+    screenshot = `unavailable (${screenshotError.message})`;
+  }
+
+  return new Error(
+    [error.message, `Page title: ${title}`, ...(incident ? [`Incident: ${incident}`] : []), `Screenshot: ${screenshot}`].join("\n"),
+    { cause: error },
+  );
+}
+
 async function waitForCardsWithRetries(page, options, warnings, contextName) {
   let lastError;
 
@@ -332,18 +352,21 @@ async function waitForCardsWithRetries(page, options, warnings, contextName) {
     }
   }
 
-  throw lastError;
+  throw await catalogPageFailure(page, options, lastError);
 }
 
-async function gotoWithRetries(page, url, options, warnings) {
+export async function gotoWithRetries(page, url, options, warnings) {
   let lastError;
 
   for (let attempt = 0; attempt <= options.retries; attempt += 1) {
     try {
-      await page.goto(url, {
+      const response = await page.goto(url, {
         waitUntil: "domcontentloaded",
         timeout: DEFAULT_NAVIGATION_TIMEOUT_MS,
       });
+      if (response?.status() >= 400) {
+        throw new Error(`Catalog returned HTTP ${response.status()}.`);
+      }
       return;
     } catch (error) {
       lastError = error;
@@ -357,7 +380,7 @@ async function gotoWithRetries(page, url, options, warnings) {
     }
   }
 
-  throw lastError;
+  throw await catalogPageFailure(page, options, lastError);
 }
 
 async function collectVisibleCards(page, catalogPage) {

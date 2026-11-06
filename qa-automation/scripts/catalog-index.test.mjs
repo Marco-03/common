@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -7,8 +9,23 @@ import {
   catalogIdentityKey,
   catalogItemTypeFromCard,
   explicitCatalogId,
+  gotoWithRetries,
   mergeCatalogDuplicates,
 } from "./catalog-index.mjs";
+
+test("reports a catalog HTTP error with page evidence instead of waiting for cards", async () => {
+  let screenshotPath;
+  const page = {
+    goto: async () => ({ status: () => 403 }),
+    title: async () => "fw_error_www",
+    locator: () => ({ innerText: async () => "Technical difficulty. Incident Number: 18.example" }),
+    screenshot: async ({ path: file }) => { screenshotPath = file; },
+  };
+  const options = { retries: 0, outputFile: path.join(os.tmpdir(), "catalog-index-test.json") };
+  await assert.rejects(gotoWithRetries(page, "https://example.test/catalog", options, []),
+    /Catalog returned HTTP 403\.[\s\S]*Page title: fw_error_www[\s\S]*Incident: 18\.example/);
+  assert.equal(screenshotPath, path.join(os.tmpdir(), "catalog-diagnostic.png"));
+});
 
 test("keeps Sprints and events out of the workshop type", () => {
   assert.equal(

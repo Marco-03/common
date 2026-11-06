@@ -21,3 +21,8 @@ storage-state*.json
 deploy/vm/.env
 deploy/vm/secrets/
 archive/
+
+# Downloaded report exports are shared outside Git.
+report.json
+report.csv
+*_report.json
